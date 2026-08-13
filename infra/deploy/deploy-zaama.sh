@@ -25,16 +25,21 @@ if ! pm2 describe zaama-api >/dev/null 2>&1; then
 fi
 
 cd "${APP_DIR}"
+
+# Les outils de compilation (Nest CLI, TypeScript) sont des devDependencies.
+# Installez-les explicitement avant de charger NODE_ENV=production.
+npm ci --include=dev
+
 set -a
 # shellcheck disable=SC1090
 source "${ENV_FILE}"
 set +a
 
-npm ci
 npm run prisma:generate
 npm --workspace services/api run build
 npx prisma migrate deploy
 npx prisma migrate status
+npm prune --omit=dev
 
 ZAAMA_APP_DIR="${APP_DIR}" ZAAMA_ENV_FILE="${ENV_FILE}" \
   pm2 startOrReload infra/deploy/ecosystem.config.cjs \
