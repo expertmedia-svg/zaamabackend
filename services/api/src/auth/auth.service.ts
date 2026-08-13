@@ -1,4 +1,6 @@
 import {
+  HttpException,
+  HttpStatus,
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
@@ -44,6 +46,7 @@ export class AuthService {
   async requestOtp(phone: string) {
     const normalized = this.normalizePhone(phone);
     const phoneHash = this.hmac(normalized);
+    await this.assertOtpRateLimit(phoneHash);
     const code = this.otpCode(normalized);
     const ttlSeconds = Number(
       this.config.get<string>('OTP_TTL_SECONDS') ?? 300,
@@ -390,6 +393,44 @@ export class AuthService {
     return allowedPhones.has(phone)
       ? pilotOtp
       : randomInt(100_000, 1_000_000).toString();
+  }
+
+  private async assertOtpRateLimit(phoneHash: string): Promise<void> {
+    const cooldownSeconds = Number(
+      this.config.get<string>('OTP_RESEND_COOLDOWN_SECONDS') ?? 60,
+    );
+    const dailyLimit = Number(
+      this.config.get<string>('OTP_DAILY_LIMIT_PER_PHONE') ?? 8,
+    );
+    const now = Date.now();
+    const [latest, sentToday] = await Promise.all([
+      this.prisma.otpRequest.findFirst({
+        where: { phoneHash },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      }),
+      this.prisma.otpRequest.count({
+        where: {
+          phoneHash,
+          createdAt: { gte: new Date(now - 86_400_000) },
+        },
+      }),
+    ]);
+    if (
+      latest &&
+      latest.createdAt.getTime() > now - Math.max(cooldownSeconds, 30) * 1000
+    ) {
+      throw new HttpException(
+        'Veuillez attendre avant de demander un nouveau code',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    if (sentToday >= Math.max(dailyLimit, 1)) {
+      throw new HttpException(
+        'Nombre maximal de codes atteint pour aujourd’hui',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
   }
 
   private toPublicUser(user: PublicUser) {

@@ -1,27 +1,35 @@
-# Déploiement pilote ZAAMA sur une VM partagée
+# Déploiement pilote ZAAMA sur la VM partagée
 
-Cette procédure n’utilise pas Docker et isole ZAAMA des autres applications :
+Ce déploiement n’utilise pas Docker. Il est volontairement isolé des autres
+applications de la VM :
 
-- code : `/home/debian/apps/zaamabackend` ;
+- dossier : `/home/debian/apps/zaamabackend` ;
 - processus PM2 : `zaama-api` ;
-- écoute : `127.0.0.1:4110` ;
-- base/rôle PostgreSQL : `zaama_prod` / `zaama_app` ;
+- écoute privée : `127.0.0.1:4110` ;
+- base PostgreSQL : `zaama_prod` ;
+- rôle PostgreSQL : `zaama_app` ;
 - site Nginx : `zaamabackend.yingr-ai.com`.
 
-Les scripts ne redémarrent jamais tous les processus PM2, ne suppriment aucune
-base et ne remplacent aucune configuration globale Nginx.
+Les scripts ne contiennent aucune commande `pm2 restart all`, suppression de
+base, remplacement de configuration globale Nginx ou réinitialisation Prisma.
 
-## 1. DNS
+## 1. DNS obligatoire
 
-Créer l’enregistrement suivant avant Certbot :
+Créer un enregistrement `A` :
 
 ```text
 zaamabackend.yingr-ai.com -> IP_PUBLIQUE_DE_LA_VM
 ```
 
-Vérifier avec `dig +short zaamabackend.yingr-ai.com A`.
+Vérifier depuis un autre ordinateur :
 
-## 2. Cloner uniquement ce backend
+```bash
+dig +short zaamabackend.yingr-ai.com A
+```
+
+Ne pas lancer Certbot tant que cette commande ne retourne pas l’IP de la VM.
+
+## 2. Cloner uniquement le backend
 
 ```bash
 mkdir -p /home/debian/apps
@@ -30,7 +38,7 @@ git clone https://github.com/expertmedia-svg/zaamabackend.git
 cd /home/debian/apps/zaamabackend
 ```
 
-## 3. Contrôles préalables
+## 3. Contrôles sans modification
 
 ```bash
 node --version
@@ -41,7 +49,7 @@ sudo -u postgres psql -tAc "select version();"
 sudo ss -ltnp | grep ':4110 ' || true
 ```
 
-Node.js 20.19 ou plus récent est requis. Le port 4110 doit être libre.
+Node.js 20 ou plus récent est requis. Le port `4110` doit être libre.
 
 ## 4. Base et secrets dédiés
 
@@ -51,49 +59,73 @@ chmod +x infra/deploy/*.sh
 ./infra/deploy/provision-zaama-vm.sh
 ```
 
-Le script demande le numéro pilote et son code OTP. Il s’arrête si la base, le
-rôle ou le fichier de secrets existent déjà.
+Le script demande le numéro du testeur et un code OTP pilote. Il crée uniquement
+`zaama_app`, `zaama_prod` et `~/.config/zaama/zaama-api.env`. Il s’arrête si un
+de ces éléments existe déjà.
 
-## 5. Installation, migrations et PM2
+## 5. Build, migrations et PM2
 
 ```bash
+cd /home/debian/apps/zaamabackend
 ./infra/deploy/deploy-zaama.sh
 pm2 show zaama-api
 pm2 logs zaama-api --lines 80
+```
+
+`prisma migrate deploy` applique uniquement les migrations déjà versionnées. Il
+ne crée aucune migration et ne réinitialise aucune donnée.
+
+Une fois le test local réussi :
+
+```bash
 curl -fsS http://127.0.0.1:4110/api/v1/health/ready
 ```
 
-`prisma migrate deploy` applique seulement les migrations versionnées.
+## 6. Activer uniquement le nouveau site Nginx
 
-## 6. Activer seulement le site ZAAMA
-
-Vérifier d’abord que le domaine n’est pas déjà configuré :
+Vérifier d’abord que le nom n’est pas déjà déclaré :
 
 ```bash
 sudo nginx -T 2>/dev/null | grep -F 'server_name zaamabackend.yingr-ai.com' || true
 ```
 
-S’il n’apparaît pas :
+Si aucune ligne n’apparaît :
 
 ```bash
-sudo install -m 0644 infra/deploy/nginx/zaamabackend.yingr-ai.com.conf /etc/nginx/sites-available/zaama-api.conf
-sudo ln -s /etc/nginx/sites-available/zaama-api.conf /etc/nginx/sites-enabled/zaama-api.conf
+sudo install -m 0644 \
+  infra/deploy/nginx/zaamabackend.yingr-ai.com.conf \
+  /etc/nginx/sites-available/zaama-api.conf
+sudo ln -s /etc/nginx/sites-available/zaama-api.conf \
+  /etc/nginx/sites-enabled/zaama-api.conf
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-## 7. HTTPS et persistance
+Le rechargement ne doit être exécuté que si `nginx -t` réussit.
 
-Après propagation du DNS :
+## 7. HTTPS
+
+Après propagation DNS :
 
 ```bash
+curl -I http://zaamabackend.yingr-ai.com/api/v1/health/live
 sudo certbot --nginx -d zaamabackend.yingr-ai.com --redirect
 sudo nginx -t
 curl -fsS https://zaamabackend.yingr-ai.com/api/v1/health/ready
+```
+
+## 8. Persistance PM2
+
+Quand ZAAMA est validé :
+
+```bash
 pm2 save
 ```
 
-## 8. Mise à jour depuis GitHub
+Cette commande sauvegarde la liste courante, y compris les applications déjà
+présentes, sans les redémarrer.
+
+## 9. Mise à jour ultérieure par GitHub
 
 ```bash
 cd /home/debian/apps/zaamabackend
@@ -101,10 +133,54 @@ git pull --ff-only
 ./infra/deploy/deploy-zaama.sh
 ```
 
-Le script PM2 cible uniquement `zaama-api` avec `--only zaama-api`.
+Le script cible seulement le processus `zaama-api` grâce à `--only zaama-api`.
 
-## Avant l’ouverture publique
+Pour déployer la préparation du test fermé publiée dans le commit `879243f` :
 
-Le pilote conserve des limites intentionnelles : OTP fixe allowlisté, aucun
-fournisseur SMS réel, connecteurs Orange/Moov à configurer, S3/TURN/push à
-fournir, et audits sécurité/charge/conformité encore requis.
+```bash
+cd /home/debian/apps/zaamabackend
+git pull --ff-only
+git log -1 --oneline
+./infra/deploy/deploy-zaama.sh
+curl -fsS http://127.0.0.1:4110/api/v1/health/ready
+```
+
+Le résultat de `git log -1 --oneline` doit commencer par `879243f`.
+
+## 10. OTP pour 200 testeurs
+
+Le code OTP fixe du pilote ne convient pas à 200 personnes. Créer une
+application Orange Developer et souscrire à SMS Burkina Faso, puis modifier
+uniquement `~/.config/zaama/zaama-api.env` :
+
+```dotenv
+OTP_MODE=orange_sms
+ORANGE_SMS_CLIENT_ID=VOTRE_CLIENT_ID
+ORANGE_SMS_CLIENT_SECRET=VOTRE_SECRET
+ORANGE_SMS_SENDER_ADDRESS=tel:+2260000
+ORANGE_SMS_SENDER_NAME=
+OTP_RESEND_COOLDOWN_SECONDS=60
+OTP_DAILY_LIMIT_PER_PHONE=8
+```
+
+Ne jamais publier ces identifiants dans GitHub. Après la modification :
+
+Laisser `ORANGE_SMS_SENDER_NAME` vide utilise automatiquement le sender Orange
+autorisé `SMS 828956`. Ne renseigner `ZAAMA` qu’après son approbation et sa
+mise en liste blanche par Orange et les autres opérateurs concernés.
+
+```bash
+cd /home/debian/apps/zaamabackend
+./infra/deploy/deploy-zaama.sh
+```
+
+## Limites avant ouverture publique
+
+Ce mode est un pilote privé, pas encore une publication nationale :
+
+- OTP fixe limité aux numéros explicitement autorisés ;
+- fournisseur SMS réel encore à intégrer ;
+- enveloppe de chiffrement mobile encore destinée au développement ;
+- stockage S3, TURN, push et connecteurs Orange/Moov à configurer ;
+- signature Play Store définitive à créer et sauvegarder ;
+- pentest, audit cryptographique, charge et revue légale requis.

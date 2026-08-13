@@ -10,8 +10,10 @@ describe('AuthService OTP modes', () => {
   function service(overrides: Record<string, string>) {
     const create = jest.fn().mockResolvedValue({ id: 'otp' });
     const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+    const findFirst = jest.fn().mockResolvedValue(null);
+    const count = jest.fn().mockResolvedValue(0);
     const prisma = {
-      otpRequest: { create, updateMany },
+      otpRequest: { create, updateMany, findFirst, count },
       $transaction: jest.fn(async (operations: unknown[]) => Promise.all(operations)),
     };
     const otpDelivery = { send: jest.fn().mockResolvedValue(undefined) };
@@ -29,6 +31,8 @@ describe('AuthService OTP modes', () => {
     };
     return {
       create,
+      findFirst,
+      count,
       instance: new AuthService(
         prisma as never,
         {} as JwtService,
@@ -77,5 +81,14 @@ describe('AuthService OTP modes', () => {
     await expect(instance.requestOtp('+22670000001')).rejects.toThrow(
       'Le fournisseur SMS OTP de production n’est pas configuré',
     );
+  });
+
+  it('prevents immediate OTP resend for the same phone', async () => {
+    const { instance, findFirst } = service({});
+    findFirst.mockResolvedValue({ createdAt: new Date() });
+
+    await expect(instance.requestOtp('+22670000001')).rejects.toMatchObject({
+      status: 429,
+    });
   });
 });
