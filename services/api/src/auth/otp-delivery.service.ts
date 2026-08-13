@@ -1,4 +1,4 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 type OrangeToken = {
@@ -8,13 +8,19 @@ type OrangeToken = {
 
 @Injectable()
 export class OtpDeliveryService {
+  private readonly logger = new Logger(OtpDeliveryService.name);
   private orangeToken?: OrangeToken;
 
   constructor(private readonly config: ConfigService) {}
 
   async send(phone: string, code: string): Promise<void> {
     const mode = this.config.get<string>('OTP_MODE') ?? 'disabled';
-    if (mode === 'pilot') return;
+    if (mode === 'pilot') {
+      this.logger.warn(
+        `SMS non envoyé : OTP_MODE=pilot, destinataire ${this.maskPhone(phone)}`,
+      );
+      return;
+    }
     if (mode !== 'orange_sms') {
       throw new ServiceUnavailableException(
         'Le fournisseur SMS OTP de production n’est pas configuré',
@@ -38,6 +44,9 @@ export class OtpDeliveryService {
     const authorization = `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`;
     const token = await this.orangeAccessToken(authorization);
     const encodedSender = encodeURIComponent(senderAddress);
+    this.logger.log(
+      `Envoi Orange SMS vers ${this.maskPhone(phone)} avec ${senderName || 'le sender par défaut'}`,
+    );
     const response = await fetch(
       `https://api.orange.com/smsmessaging/v1/outbound/${encodedSender}/requests`,
       {
@@ -61,10 +70,18 @@ export class OtpDeliveryService {
       },
     );
     if (!response.ok) {
+      this.logger.error(
+        `Orange SMS refusé : HTTP ${response.status} pour ${this.maskPhone(phone)}`,
+      );
       throw new ServiceUnavailableException(
         `Orange SMS indisponible (${response.status})`,
       );
     }
+    const location = response.headers.get('location');
+    const resourceId = location?.split('/').filter(Boolean).at(-1);
+    this.logger.log(
+      `Orange SMS accepté : HTTP ${response.status}, destinataire ${this.maskPhone(phone)}${resourceId ? `, ressource ${resourceId}` : ''}`,
+    );
   }
 
   private async orangeAccessToken(authorization: string): Promise<string> {
@@ -82,6 +99,7 @@ export class OtpDeliveryService {
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) {
+      this.logger.error(`Token Orange SMS refusé : HTTP ${response.status}`);
       throw new ServiceUnavailableException(
         `Authentification Orange SMS impossible (${response.status})`,
       );
@@ -98,5 +116,10 @@ export class OtpDeliveryService {
       expiresAt: Date.now() + (payload.expires_in ?? 3600) * 1000,
     };
     return payload.access_token;
+  }
+
+  private maskPhone(phone: string): string {
+    const normalized = phone.replace(/\D/g, '');
+    return normalized.length > 4 ? `***${normalized.slice(-4)}` : '***';
   }
 }

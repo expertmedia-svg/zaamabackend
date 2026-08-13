@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Logger,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedRequest } from '../common/auth-user';
 import { AuthService } from './auth.service';
@@ -7,12 +18,20 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(private readonly authService: AuthService) {}
 
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post('request-otp')
   requestOtp(@Body() dto: RequestOtpDto) {
+    this.logger.log(`Demande OTP reçue pour ${this.maskPhone(dto.phone)}`);
     return this.authService.requestOtp(dto.phone);
+  }
+
+  private maskPhone(phone: string): string {
+    const normalized = phone.replace(/\D/g, '');
+    return normalized.length > 4 ? `***${normalized.slice(-4)}` : '***';
   }
 
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
