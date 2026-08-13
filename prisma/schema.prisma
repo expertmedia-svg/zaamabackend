@@ -1,0 +1,856 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../services/api/src/generated/prisma"
+  engineType   = "client"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum DevicePlatform {
+  ANDROID
+  IOS
+  WEB
+  UNKNOWN
+}
+
+enum ConversationType {
+  DIRECT
+  GROUP
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+  LOCATION
+  SYSTEM
+}
+
+enum ReceiptState {
+  SENT
+  DELIVERED
+  READ
+}
+
+enum AttachmentStatus {
+  PENDING
+  UPLOADED
+  PROCESSING
+  READY
+  FAILED
+  CONSUMED
+}
+
+enum GroupRoleName {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum StoryPrivacy {
+  CONTACTS
+  CONTACTS_EXCEPT
+  SELECTED
+}
+
+enum CallType {
+  AUDIO
+  VIDEO
+}
+
+enum CallStatus {
+  RINGING
+  CONNECTING
+  CONNECTED
+  ENDED
+  MISSED
+  DECLINED
+  FAILED
+}
+
+enum NotificationType {
+  MESSAGE
+  CALL
+  GROUP_INVITE
+  STORY_REACTION
+  SYSTEM
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  REJECTED
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  MODERATOR
+  SUPPORT
+  ANALYST
+}
+
+enum GroupVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum GroupJoinMode {
+  OPEN
+  APPROVAL
+  INVITE_ONLY
+}
+
+enum BusinessStatus {
+  DRAFT
+  PENDING
+  VERIFIED
+  REJECTED
+  SUSPENDED
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  OUT_OF_STOCK
+  ARCHIVED
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  ACCEPTED
+  PREPARING
+  READY
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum LedgerAccountType {
+  USER_WALLET
+  PROVIDER_CLEARING
+  PLATFORM_REVENUE
+}
+
+enum WalletOperationType {
+  TOP_UP
+  TRANSFER
+  MARKETPLACE_PAYMENT
+  REFUND
+  WITHDRAWAL
+  FEE
+}
+
+enum WalletOperationStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REVERSED
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+enum PaymentProvider {
+  SANDBOX
+  ORANGE_MONEY
+  MOOV_MONEY
+}
+
+model User {
+  id                  String               @id @default(uuid()) @db.Uuid
+  phone               String               @unique @db.VarChar(32)
+  phoneHash           String               @unique @db.Char(64)
+  status              UserStatus           @default(ACTIVE)
+  createdAt           DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime             @updatedAt @db.Timestamptz(3)
+  deletedAt           DateTime?            @db.Timestamptz(3)
+  profile             UserProfile?
+  devices             Device[]
+  sessions            Session[]
+  contacts            Contact[]            @relation("ContactOwner")
+  contactMatches      ContactMatch[]       @relation("MatchedUser")
+  conversationMembers ConversationMember[]
+  sentMessages        Message[]            @relation("MessageSender")
+  messageReceipts     MessageReceipt[]
+  messageReactions    MessageReaction[]
+  groupMemberships    GroupMember[]
+  ownedGroups         Group[]              @relation("GroupOwner")
+  stories             Story[]
+  storyViews          StoryView[]
+  startedCalls        Call[]               @relation("CallStarter")
+  callParticipations  CallParticipant[]
+  pushTokens          PushToken[]
+  blocksMade          BlockedUser[]        @relation("Blocker")
+  blocksReceived      BlockedUser[]        @relation("Blocked")
+  reportsMade         Report[]             @relation("Reporter")
+  reportsReceived     Report[]             @relation("ReportedUser")
+  notifications       Notification[]
+  uploads             Upload[]
+  business            BusinessProfile?
+  ledgerAccount       LedgerAccount?       @relation("LedgerOwner")
+  walletOperations    WalletOperation[]    @relation("WalletInitiator")
+  marketplaceOrders   MarketplaceOrder[]   @relation("OrderBuyer")
+
+  @@index([status, createdAt])
+  @@map("users")
+}
+
+model UserProfile {
+  userId                 String   @id @db.Uuid
+  username               String   @unique @db.VarChar(32)
+  displayName            String   @db.VarChar(80)
+  avatarUrl              String?  @db.VarChar(1024)
+  bio                    String   @default("") @db.VarChar(160)
+  lastSeenVisibility     String   @default("contacts") @db.VarChar(32)
+  profilePhotoVisibility String   @default("contacts") @db.VarChar(32)
+  readReceipts           Boolean  @default(true)
+  storyPrivacy           String   @default("contacts") @db.VarChar(32)
+  language               String   @default("fr") @db.VarChar(8)
+  theme                  String   @default("system") @db.VarChar(16)
+  mediaAutoDownload      Json     @default("{\"photos\":\"wifi\",\"audio\":\"wifi\",\"video\":\"wifi\",\"documents\":\"never\"}")
+  dataSaver              String   @default("standard") @db.VarChar(16)
+  createdAt              DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime @updatedAt @db.Timestamptz(3)
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+model Device {
+  id               String            @id @default(uuid()) @db.Uuid
+  userId           String            @db.Uuid
+  installationId   String            @db.VarChar(128)
+  name             String            @db.VarChar(120)
+  platform         DevicePlatform    @default(UNKNOWN)
+  appVersion       String?           @db.VarChar(32)
+  lastActiveAt     DateTime          @default(now()) @db.Timestamptz(3)
+  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions         Session[]
+  encryptionDevice EncryptionDevice?
+  pushTokens       PushToken[]
+
+  @@unique([userId, installationId])
+  @@index([userId, lastActiveAt])
+  @@map("devices")
+}
+
+model Session {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @db.Uuid
+  deviceId         String    @db.Uuid
+  refreshTokenHash String    @db.Char(64)
+  rotation         Int       @default(0)
+  ipAddress        String?   @db.VarChar(64)
+  userAgent        String?   @db.VarChar(512)
+  lastActiveAt     DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt        DateTime  @db.Timestamptz(3)
+  revokedAt        DateTime? @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device           Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model OtpRequest {
+  id         String    @id @default(uuid()) @db.Uuid
+  phoneHash  String    @db.Char(64)
+  codeHash   String    @db.Char(64)
+  attempts   Int       @default(0)
+  expiresAt  DateTime  @db.Timestamptz(3)
+  consumedAt DateTime? @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([phoneHash, createdAt])
+  @@index([expiresAt])
+  @@map("otp_requests")
+}
+
+model Contact {
+  id        String        @id @default(uuid()) @db.Uuid
+  ownerId   String        @db.Uuid
+  phoneHash String        @db.Char(64)
+  createdAt DateTime      @default(now()) @db.Timestamptz(3)
+  owner     User          @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  match     ContactMatch?
+
+  @@unique([ownerId, phoneHash])
+  @@index([phoneHash])
+  @@map("contacts")
+}
+
+model ContactMatch {
+  id            String   @id @default(uuid()) @db.Uuid
+  contactId     String   @unique @db.Uuid
+  matchedUserId String   @db.Uuid
+  matchedAt     DateTime @default(now()) @db.Timestamptz(3)
+  contact       Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  matchedUser   User     @relation("MatchedUser", fields: [matchedUserId], references: [id], onDelete: Cascade)
+
+  @@index([matchedUserId])
+  @@map("contact_matches")
+}
+
+model Conversation {
+  id            String               @id @default(uuid()) @db.Uuid
+  type          ConversationType
+  directKey     String?              @unique @db.VarChar(80)
+  lastMessageAt DateTime?            @db.Timestamptz(3)
+  createdAt     DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime             @updatedAt @db.Timestamptz(3)
+  members       ConversationMember[]
+  messages      Message[]
+  group         Group?
+  calls         Call[]
+
+  @@index([lastMessageAt])
+  @@map("conversations")
+}
+
+model ConversationMember {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @db.Uuid
+  userId         String       @db.Uuid
+  joinedAt       DateTime     @default(now()) @db.Timestamptz(3)
+  lastReadAt     DateTime?    @db.Timestamptz(3)
+  archivedAt     DateTime?    @db.Timestamptz(3)
+  mutedUntil     DateTime?    @db.Timestamptz(3)
+  pinnedAt       DateTime?    @db.Timestamptz(3)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId, pinnedAt, archivedAt])
+  @@map("conversation_members")
+}
+
+model Message {
+  id                   String            @id @default(uuid()) @db.Uuid
+  conversationId       String            @db.Uuid
+  senderId             String            @db.Uuid
+  clientMessageId      String            @db.Uuid
+  type                 MessageType       @default(TEXT)
+  encryptedPayload     String            @db.Text
+  replyToId            String?           @db.Uuid
+  expiresAt            DateTime?         @db.Timestamptz(3)
+  editedAt             DateTime?         @db.Timestamptz(3)
+  deletedForEveryoneAt DateTime?         @db.Timestamptz(3)
+  createdAt            DateTime          @default(now()) @db.Timestamptz(3)
+  conversation         Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender               User              @relation("MessageSender", fields: [senderId], references: [id], onDelete: Restrict)
+  replyTo              Message?          @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies              Message[]         @relation("MessageReplies")
+  receipts             MessageReceipt[]
+  reactions            MessageReaction[]
+  edits                MessageEdit[]
+  attachments          Attachment[]
+  reports              Report[]
+
+  @@unique([senderId, clientMessageId])
+  @@index([conversationId, createdAt(sort: Desc), id])
+  @@index([expiresAt])
+  @@map("messages")
+}
+
+model MessageReceipt {
+  id        String       @id @default(uuid()) @db.Uuid
+  messageId String       @db.Uuid
+  userId    String       @db.Uuid
+  state     ReceiptState @default(SENT)
+  updatedAt DateTime     @updatedAt @db.Timestamptz(3)
+  message   Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId, state])
+  @@map("message_receipts")
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid()) @db.Uuid
+  messageId String   @db.Uuid
+  userId    String   @db.Uuid
+  emoji     String   @db.VarChar(16)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@map("message_reactions")
+}
+
+model MessageEdit {
+  id                       String   @id @default(uuid()) @db.Uuid
+  messageId                String   @db.Uuid
+  previousEncryptedPayload String   @db.Text
+  createdAt                DateTime @default(now()) @db.Timestamptz(3)
+  message                  Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId, createdAt])
+  @@map("message_edits")
+}
+
+model Upload {
+  id          String           @id @default(uuid()) @db.Uuid
+  userId      String           @db.Uuid
+  objectKey   String           @unique @db.VarChar(512)
+  fileName    String           @db.VarChar(255)
+  contentType String           @db.VarChar(128)
+  size        BigInt
+  checksum    String?          @db.VarChar(128)
+  status      AttachmentStatus @default(PENDING)
+  expiresAt   DateTime         @db.Timestamptz(3)
+  createdAt   DateTime         @default(now()) @db.Timestamptz(3)
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attachment  Attachment?
+
+  @@index([userId, createdAt])
+  @@index([expiresAt, status])
+  @@map("uploads")
+}
+
+model Attachment {
+  id           String           @id @default(uuid()) @db.Uuid
+  messageId    String           @db.Uuid
+  uploadId     String           @unique @db.Uuid
+  encryptedKey String?          @db.Text
+  thumbnailKey String?          @db.Text
+  durationMs   Int?
+  width        Int?
+  height       Int?
+  viewOnce     Boolean          @default(false)
+  status       AttachmentStatus @default(PENDING)
+  createdAt    DateTime         @default(now()) @db.Timestamptz(3)
+  message      Message          @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  upload       Upload           @relation(fields: [uploadId], references: [id], onDelete: Restrict)
+
+  @@index([messageId])
+  @@map("attachments")
+}
+
+model Group {
+  id              String          @id @default(uuid()) @db.Uuid
+  conversationId  String          @unique @db.Uuid
+  ownerId         String          @db.Uuid
+  name            String          @db.VarChar(120)
+  description     String          @default("") @db.VarChar(512)
+  avatarUrl       String?         @db.VarChar(1024)
+  inviteCode      String          @unique @db.VarChar(64)
+  visibility      GroupVisibility @default(PRIVATE)
+  joinMode        GroupJoinMode   @default(INVITE_ONLY)
+  slowModeSeconds Int             @default(0)
+  membersCanPost  Boolean         @default(true)
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
+  conversation    Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  owner           User            @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  members         GroupMember[]
+  roles           GroupRole[]
+  topics          GroupTopic[]
+
+  @@index([ownerId])
+  @@map("groups")
+}
+
+model GroupTopic {
+  id          String   @id @default(uuid()) @db.Uuid
+  groupId     String   @db.Uuid
+  name        String   @db.VarChar(80)
+  description String   @default("") @db.VarChar(240)
+  icon        String   @default("💬") @db.VarChar(16)
+  isClosed    Boolean  @default(false)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, name])
+  @@index([groupId, createdAt])
+  @@map("group_topics")
+}
+
+model GroupRole {
+  id          String        @id @default(uuid()) @db.Uuid
+  groupId     String        @db.Uuid
+  name        GroupRoleName
+  permissions Json
+  group       Group         @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  members     GroupMember[]
+
+  @@unique([groupId, name])
+  @@map("group_roles")
+}
+
+model GroupMember {
+  id       String    @id @default(uuid()) @db.Uuid
+  groupId  String    @db.Uuid
+  userId   String    @db.Uuid
+  roleId   String    @db.Uuid
+  joinedAt DateTime  @default(now()) @db.Timestamptz(3)
+  group    Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     GroupRole @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+  @@map("group_members")
+}
+
+model Story {
+  id              String       @id @default(uuid()) @db.Uuid
+  userId          String       @db.Uuid
+  privacy         StoryPrivacy @default(CONTACTS)
+  audienceUserIds String[]     @default([]) @db.Uuid
+  excludedUserIds String[]     @default([]) @db.Uuid
+  expiresAt       DateTime     @db.Timestamptz(3)
+  createdAt       DateTime     @default(now()) @db.Timestamptz(3)
+  deletedAt       DateTime?    @db.Timestamptz(3)
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items           StoryItem[]
+  views           StoryView[]
+  reports         Report[]
+
+  @@index([expiresAt, deletedAt])
+  @@index([userId, createdAt])
+  @@map("stories")
+}
+
+model StoryItem {
+  id               String      @id @default(uuid()) @db.Uuid
+  storyId          String      @db.Uuid
+  type             MessageType
+  encryptedPayload String      @db.Text
+  durationMs       Int?
+  position         Int         @default(0)
+  createdAt        DateTime    @default(now()) @db.Timestamptz(3)
+  story            Story       @relation(fields: [storyId], references: [id], onDelete: Cascade)
+
+  @@unique([storyId, position])
+  @@map("story_items")
+}
+
+model StoryView {
+  id       String   @id @default(uuid()) @db.Uuid
+  storyId  String   @db.Uuid
+  viewerId String   @db.Uuid
+  viewedAt DateTime @default(now()) @db.Timestamptz(3)
+  story    Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  viewer   User     @relation(fields: [viewerId], references: [id], onDelete: Cascade)
+
+  @@unique([storyId, viewerId])
+  @@map("story_views")
+}
+
+model Call {
+  id             String            @id @default(uuid()) @db.Uuid
+  conversationId String?           @db.Uuid
+  startedById    String            @db.Uuid
+  type           CallType
+  status         CallStatus        @default(RINGING)
+  startedAt      DateTime          @default(now()) @db.Timestamptz(3)
+  connectedAt    DateTime?         @db.Timestamptz(3)
+  endedAt        DateTime?         @db.Timestamptz(3)
+  conversation   Conversation?     @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  startedBy      User              @relation("CallStarter", fields: [startedById], references: [id], onDelete: Restrict)
+  participants   CallParticipant[]
+
+  @@index([startedById, startedAt])
+  @@map("calls")
+}
+
+model CallParticipant {
+  id       String    @id @default(uuid()) @db.Uuid
+  callId   String    @db.Uuid
+  userId   String    @db.Uuid
+  joinedAt DateTime? @db.Timestamptz(3)
+  leftAt   DateTime? @db.Timestamptz(3)
+  call     Call      @relation(fields: [callId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([callId, userId])
+  @@index([userId])
+  @@map("call_participants")
+}
+
+model PushToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  deviceId  String   @db.Uuid
+  provider  String   @default("fcm") @db.VarChar(32)
+  token     String   @unique @db.VarChar(512)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_tokens")
+}
+
+model BlockedUser {
+  id        String   @id @default(uuid()) @db.Uuid
+  blockerId String   @db.Uuid
+  blockedId String   @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  blocker   User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("blocked_users")
+}
+
+model Report {
+  id                 String       @id @default(uuid()) @db.Uuid
+  reporterId         String       @db.Uuid
+  targetUserId       String?      @db.Uuid
+  messageId          String?      @db.Uuid
+  storyId            String?      @db.Uuid
+  reason             String       @db.VarChar(120)
+  evidenceCiphertext String?      @db.Text
+  status             ReportStatus @default(OPEN)
+  createdAt          DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime     @updatedAt @db.Timestamptz(3)
+  reporter           User         @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  targetUser         User?        @relation("ReportedUser", fields: [targetUserId], references: [id], onDelete: SetNull)
+  message            Message?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  story              Story?       @relation(fields: [storyId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@map("reports")
+}
+
+model EncryptionDevice {
+  id                String   @id @default(uuid()) @db.Uuid
+  deviceId          String   @unique @db.Uuid
+  registrationId    Int
+  identityPublicKey Bytes
+  signedPreKey      Bytes
+  signedPreKeySig   Bytes
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
+  device            Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  prekeys           PreKey[]
+
+  @@map("encryption_devices")
+}
+
+model PreKey {
+  id                 String           @id @default(uuid()) @db.Uuid
+  encryptionDeviceId String           @db.Uuid
+  keyId              Int
+  publicKey          Bytes
+  consumedAt         DateTime?        @db.Timestamptz(3)
+  createdAt          DateTime         @default(now()) @db.Timestamptz(3)
+  encryptionDevice   EncryptionDevice @relation(fields: [encryptionDeviceId], references: [id], onDelete: Cascade)
+
+  @@unique([encryptionDeviceId, keyId])
+  @@index([encryptionDeviceId, consumedAt])
+  @@map("prekeys")
+}
+
+model AdminUser {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique @db.VarChar(254)
+  passwordHash String
+  role         AdminRole
+  mfaSecret    String?
+  active       Boolean    @default(true)
+  lastLoginAt  DateTime?  @db.Timestamptz(3)
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @db.Timestamptz(3)
+  auditLogs    AuditLog[]
+
+  @@map("admin_users")
+}
+
+model AuditLog {
+  id        String     @id @default(uuid()) @db.Uuid
+  adminId   String?    @db.Uuid
+  action    String     @db.VarChar(120)
+  target    String?    @db.VarChar(255)
+  ipAddress String?    @db.VarChar(64)
+  metadata  Json?
+  createdAt DateTime   @default(now()) @db.Timestamptz(3)
+  admin     AdminUser? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([adminId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @db.Uuid
+  type      NotificationType
+  payload   Json
+  readAt    DateTime?        @db.Timestamptz(3)
+  createdAt DateTime         @default(now()) @db.Timestamptz(3)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+  @@map("notifications")
+}
+
+model BusinessProfile {
+  id          String             @id @default(uuid()) @db.Uuid
+  ownerId     String             @unique @db.Uuid
+  slug        String             @unique @db.VarChar(80)
+  name        String             @db.VarChar(120)
+  description String             @default("") @db.VarChar(600)
+  category    String             @db.VarChar(80)
+  city        String             @default("Ouagadougou") @db.VarChar(80)
+  logoUrl     String?            @db.VarChar(1024)
+  coverUrl    String?            @db.VarChar(1024)
+  status      BusinessStatus     @default(PENDING)
+  rating      Int                @default(50)
+  reviewCount Int                @default(0)
+  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime           @updatedAt @db.Timestamptz(3)
+  owner       User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  products    Product[]
+  orders      MarketplaceOrder[]
+
+  @@index([status, category, createdAt])
+  @@map("business_profiles")
+}
+
+model Product {
+  id          String                 @id @default(uuid()) @db.Uuid
+  businessId  String                 @db.Uuid
+  name        String                 @db.VarChar(140)
+  description String                 @default("") @db.VarChar(1200)
+  category    String                 @db.VarChar(80)
+  priceXof    Int
+  stock       Int                    @default(0)
+  imageUrl    String?                @db.VarChar(1024)
+  status      ProductStatus          @default(DRAFT)
+  featured    Boolean                @default(false)
+  createdAt   DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime               @updatedAt @db.Timestamptz(3)
+  business    BusinessProfile        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  orderLines  MarketplaceOrderLine[]
+
+  @@index([status, featured, createdAt])
+  @@index([businessId, status])
+  @@map("products")
+}
+
+model MarketplaceOrder {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  reference          String                 @unique @db.VarChar(32)
+  idempotencyKey     String                 @unique @db.VarChar(240)
+  buyerId            String                 @db.Uuid
+  businessId         String                 @db.Uuid
+  status             OrderStatus            @default(PENDING_PAYMENT)
+  subtotalXof        Int
+  deliveryFeeXof     Int                    @default(0)
+  totalXof           Int
+  deliveryAddress    String                 @db.VarChar(300)
+  customerNote       String                 @default("") @db.VarChar(500)
+  paymentOperationId String?                @unique @db.Uuid
+  createdAt          DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime               @updatedAt @db.Timestamptz(3)
+  buyer              User                   @relation("OrderBuyer", fields: [buyerId], references: [id], onDelete: Restrict)
+  business           BusinessProfile        @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  paymentOperation   WalletOperation?       @relation(fields: [paymentOperationId], references: [id], onDelete: SetNull)
+  lines              MarketplaceOrderLine[]
+
+  @@index([buyerId, createdAt])
+  @@index([businessId, status, createdAt])
+  @@map("marketplace_orders")
+}
+
+model MarketplaceOrderLine {
+  id           String           @id @default(uuid()) @db.Uuid
+  orderId      String           @db.Uuid
+  productId    String           @db.Uuid
+  productName  String           @db.VarChar(140)
+  unitPriceXof Int
+  quantity     Int
+  lineTotalXof Int
+  order        MarketplaceOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product      Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@map("marketplace_order_lines")
+}
+
+model LedgerAccount {
+  id        String            @id @default(uuid()) @db.Uuid
+  code      String            @unique @db.VarChar(80)
+  ownerId   String?           @unique @db.Uuid
+  type      LedgerAccountType
+  currency  String            @default("XOF") @db.Char(3)
+  active    Boolean           @default(true)
+  createdAt DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime          @updatedAt @db.Timestamptz(3)
+  owner     User?             @relation("LedgerOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  debits    WalletOperation[] @relation("WalletDebitAccount")
+  credits   WalletOperation[] @relation("WalletCreditAccount")
+  entries   LedgerEntry[]
+
+  @@index([type, active])
+  @@map("ledger_accounts")
+}
+
+model WalletOperation {
+  id                String                @id @default(uuid()) @db.Uuid
+  reference         String                @unique @db.VarChar(32)
+  idempotencyKey    String                @unique @db.VarChar(240)
+  initiatedById     String                @db.Uuid
+  debitAccountId    String                @db.Uuid
+  creditAccountId   String                @db.Uuid
+  type              WalletOperationType
+  status            WalletOperationStatus @default(PENDING)
+  provider          PaymentProvider       @default(SANDBOX)
+  providerReference String?               @unique @db.VarChar(120)
+  amountXof         Int
+  label             String                @db.VarChar(180)
+  metadata          Json?
+  completedAt       DateTime?             @db.Timestamptz(3)
+  createdAt         DateTime              @default(now()) @db.Timestamptz(3)
+  initiatedBy       User                  @relation("WalletInitiator", fields: [initiatedById], references: [id], onDelete: Restrict)
+  debitAccount      LedgerAccount         @relation("WalletDebitAccount", fields: [debitAccountId], references: [id], onDelete: Restrict)
+  creditAccount     LedgerAccount         @relation("WalletCreditAccount", fields: [creditAccountId], references: [id], onDelete: Restrict)
+  entries           LedgerEntry[]
+  order             MarketplaceOrder?
+
+  @@index([initiatedById, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@map("wallet_operations")
+}
+
+model LedgerEntry {
+  id          String          @id @default(uuid()) @db.Uuid
+  operationId String          @db.Uuid
+  accountId   String          @db.Uuid
+  direction   LedgerDirection
+  amountXof   Int
+  createdAt   DateTime        @default(now()) @db.Timestamptz(3)
+  operation   WalletOperation @relation(fields: [operationId], references: [id], onDelete: Restrict)
+  account     LedgerAccount   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([operationId, accountId, direction])
+  @@index([accountId, createdAt(sort: Desc)])
+  @@map("ledger_entries")
+}

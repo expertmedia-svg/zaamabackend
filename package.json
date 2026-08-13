@@ -1,0 +1,30 @@
+{
+  "name": "zaama-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend souverain ZAAMA : messagerie, groupes, stories, marketplace et wallet XOF.",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "services/api"
+  ],
+  "scripts": {
+    "dev": "npm --workspace services/api run start:dev",
+    "build": "npm --workspace services/api run build",
+    "start:prod": "node services/api/dist/main.js",
+    "test": "npm --workspace services/api test -- --runInBand",
+    "test:e2e": "npm --workspace services/api run test:e2e",
+    "lint": "npm --workspace services/api run lint",
+    "migrate:deploy": "prisma migrate deploy",
+    "migrate:status": "prisma migrate status",
+    "migrate:dev": "prisma migrate dev && prisma generate",
+    "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
+    "seed": "prisma db seed",
+    "seed:local": "tsc -p prisma/tsconfig.seed.json && node .tmp/seed/prisma/seed.js"
+  },
+  "devDependencies": {
+    "dotenv": "^17.4.1",
+    "prisma": "^7.9.1",
+    "typescript": "^5.9.3"
+  }
+}
