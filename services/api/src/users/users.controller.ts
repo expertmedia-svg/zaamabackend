@@ -1,7 +1,19 @@
-import { Body, Controller, Get, Patch, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import type { AuthenticatedRequest } from '../common/auth-user';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { SearchUsersDto, UpdateMeDto } from './users.dto';
+import { CreateReportDto, SearchUsersDto, UpdateMeDto } from './users.dto';
 import { UsersService } from './users.service';
 
 @UseGuards(JwtAuthGuard)
@@ -17,6 +29,40 @@ export class UsersController {
   @Patch('me')
   updateMe(@Req() request: AuthenticatedRequest, @Body() dto: UpdateMeDto) {
     return this.usersService.updateMe(request.user.id, dto);
+  }
+
+  @Delete('me')
+  deleteMe(@Req() request: AuthenticatedRequest) {
+    return this.usersService.deleteAccount(request.user.id);
+  }
+
+  @Get('me/blocked')
+  blocked(@Req() request: AuthenticatedRequest) {
+    return this.usersService.listBlocked(request.user.id);
+  }
+
+  @Post('reports')
+  report(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: CreateReportDto,
+  ) {
+    return this.usersService.report(request.user.id, dto);
+  }
+
+  @Post(':id/block')
+  block(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.usersService.block(request.user.id, id);
+  }
+
+  @Delete(':id/block')
+  unblock(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.usersService.unblock(request.user.id, id);
   }
 
   @Get('search')

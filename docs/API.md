@@ -13,6 +13,11 @@
 - DELETE /auth/sessions/:id
 - GET /users/me
 - PATCH /users/me
+- DELETE /users/me
+- GET /users/me/blocked
+- POST /users/:id/block
+- DELETE /users/:id/block
+- POST /users/reports
 - GET /conversations
 - POST /conversations/direct
 - GET /conversations/:id/messages

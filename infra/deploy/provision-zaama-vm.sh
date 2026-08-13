@@ -18,8 +18,8 @@ command -v openssl >/dev/null || fail 'openssl est requis.'
 command -v node >/dev/null || fail 'Node.js est requis.'
 command -v pm2 >/dev/null || fail 'PM2 est requis pour l’utilisateur courant.'
 
-node -e "const [major, minor] = process.versions.node.split('.').map(Number); process.exit((major === 20 && minor >= 19) || (major === 22 && minor >= 12) || major >= 24 ? 0 : 1)" \
-  || fail 'Node.js 20.19+, 22.12+ ou 24+ est requis.'
+NODE_MAJOR="$(node -p "Number(process.versions.node.split('.')[0])")"
+[[ ${NODE_MAJOR} -ge 20 ]] || fail 'Node.js 20 ou plus récent est requis.'
 [[ ! -e "${ENV_FILE}" ]] || fail "${ENV_FILE} existe déjà; aucune donnée existante n’a été modifiée."
 
 ROLE_EXISTS="$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='${DB_ROLE}'" | tr -d '[:space:]')"
@@ -63,6 +63,10 @@ OTP_MODE=pilot
 PILOT_ALLOWED_PHONES=${PILOT_PHONE}
 PILOT_OTP=${PILOT_OTP}
 OTP_TTL_SECONDS=300
+ORANGE_SMS_CLIENT_ID=
+ORANGE_SMS_CLIENT_SECRET=
+ORANGE_SMS_SENDER_ADDRESS=tel:+2260000
+ORANGE_SMS_SENDER_NAME=
 CORS_ORIGINS=https://zaamabackend.yingr-ai.com
 REDIS_URL=
 S3_ENDPOINT=

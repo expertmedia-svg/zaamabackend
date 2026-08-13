@@ -16,6 +16,7 @@ import {
 import { PrismaService } from '../database/prisma.service';
 import type { User, UserProfile } from '../generated/prisma/client';
 import type { VerifyOtpDto } from './auth.dto';
+import { OtpDeliveryService } from './otp-delivery.service';
 
 interface TokenPayload {
   sub: string;
@@ -37,6 +38,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
+    private readonly otpDelivery: OtpDeliveryService,
   ) {}
 
   async requestOtp(phone: string) {
@@ -48,13 +50,20 @@ export class AuthService {
     );
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
 
-    await this.prisma.otpRequest.create({
-      data: {
-        phoneHash,
-        codeHash: this.hmac(`${phoneHash}:${code}`),
-        expiresAt,
-      },
-    });
+    await this.otpDelivery.send(normalized, code);
+    await this.prisma.$transaction([
+      this.prisma.otpRequest.updateMany({
+        where: { phoneHash, consumedAt: null },
+        data: { consumedAt: new Date() },
+      }),
+      this.prisma.otpRequest.create({
+        data: {
+          phoneHash,
+          codeHash: this.hmac(`${phoneHash}:${code}`),
+          expiresAt,
+        },
+      }),
+    ]);
 
     return {
       success: true,
@@ -356,9 +365,13 @@ export class AuthService {
       return this.config.get<string>('DEV_OTP') ?? '123456';
     }
 
+    if (this.config.get<string>('OTP_MODE') === 'orange_sms') {
+      return randomInt(100_000, 1_000_000).toString();
+    }
+
     if (this.config.get<string>('OTP_MODE') !== 'pilot') {
       throw new ServiceUnavailableException(
-        'Le fournisseur SMS OTP de production n’est pas encore configuré',
+        'Le fournisseur SMS OTP de production n’est pas configuré',
       );
     }
 

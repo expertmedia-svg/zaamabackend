@@ -2,13 +2,19 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { createHmac } from 'node:crypto';
 import { AuthService } from './auth.service';
+import { OtpDeliveryService } from './otp-delivery.service';
 
 describe('AuthService OTP modes', () => {
   const secret = 'test-contact-hash-secret-with-32-characters';
 
   function service(overrides: Record<string, string>) {
     const create = jest.fn().mockResolvedValue({ id: 'otp' });
-    const prisma = { otpRequest: { create } };
+    const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+    const prisma = {
+      otpRequest: { create, updateMany },
+      $transaction: jest.fn(async (operations: unknown[]) => Promise.all(operations)),
+    };
+    const otpDelivery = { send: jest.fn().mockResolvedValue(undefined) };
     const values = {
       NODE_ENV: 'production',
       APP_ENV: 'production',
@@ -27,6 +33,7 @@ describe('AuthService OTP modes', () => {
         prisma as never,
         {} as JwtService,
         config as unknown as ConfigService,
+        otpDelivery as unknown as OtpDeliveryService,
       ),
     };
   }
@@ -68,7 +75,7 @@ describe('AuthService OTP modes', () => {
     const { instance } = service({ OTP_MODE: 'disabled' });
 
     await expect(instance.requestOtp('+22670000001')).rejects.toThrow(
-      'Le fournisseur SMS OTP de production n’est pas encore configuré',
+      'Le fournisseur SMS OTP de production n’est pas configuré',
     );
   });
 });

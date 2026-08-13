@@ -1,4 +1,4 @@
-import { IsBoolean, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
 
 export class UpdateMeDto {
   @IsOptional()
@@ -39,4 +39,27 @@ export class SearchUsersDto {
   @IsString()
   @Matches(/^@?[a-z0-9_]{2,30}$/)
   username!: string;
+}
+
+export class CreateReportDto {
+  @IsOptional()
+  @IsUUID()
+  targetUserId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  messageId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  storyId?: string;
+
+  @IsString()
+  @MaxLength(120)
+  reason!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(4096)
+  evidenceCiphertext?: string;
 }
