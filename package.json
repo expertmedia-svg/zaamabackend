@@ -4,6 +4,9 @@
   "private": true,
   "description": "Backend souverain ZAAMA : messagerie, groupes, stories, marketplace et wallet XOF.",
   "license": "UNLICENSED",
+  "engines": {
+    "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
+  },
   "workspaces": [
     "services/api"
   ],
