@@ -135,17 +135,18 @@ git pull --ff-only
 
 Le script cible seulement le processus `zaama-api` grâce à `--only zaama-api`.
 
-Pour déployer la préparation du test fermé publiée dans le commit `b7d3ccf` :
+Pour déployer la dernière préparation du test fermé :
 
 ```bash
 cd /home/debian/apps/zaamabackend
 git pull --ff-only
 git log -1 --oneline
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
 ./infra/deploy/deploy-zaama.sh
 curl -fsS http://127.0.0.1:4110/api/v1/health/ready
 ```
 
-Le résultat de `git log -1 --oneline` doit commencer par `b7d3ccf`.
+La commande `test` ne doit produire aucune sortie et doit retourner le code 0.
 
 ## 10. OTP pour 200 testeurs
 
