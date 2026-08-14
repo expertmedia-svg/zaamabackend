@@ -7,6 +7,7 @@ import {
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
 import { Prisma } from '../generated/prisma/client';
+import { UploadsService } from '../uploads/uploads.service';
 import type { CreateReportDto, UpdateMeDto } from './users.dto';
 
 const publicProfileSelect = {
@@ -31,7 +32,10 @@ const publicProfileSelect = {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly uploads: UploadsService,
+  ) {}
 
   async getMe(userId: string) {
     const user = await this.prisma.user.findUnique({
@@ -44,8 +48,8 @@ export class UsersService {
 
   async updateMe(userId: string, data: UpdateMeDto) {
     const [avatarUrl, coverUrl] = await Promise.all([
-      this.resolveOwnedUploadKey(userId, data.avatarUploadId),
-      this.resolveOwnedUploadKey(userId, data.coverUploadId),
+      this.uploads.resolveOwnedUploadKey(userId, data.avatarUploadId),
+      this.uploads.resolveOwnedUploadKey(userId, data.coverUploadId),
     ]);
     try {
       return await this.prisma.user.update({
@@ -84,25 +88,6 @@ export class UsersService {
       }
       throw error;
     }
-  }
-
-  /// Vérifie qu'un upload appartient bien à l'utilisateur et est terminé
-  /// avant d'en accepter la clé d'objet comme photo de profil/couverture.
-  /// Ne fait jamais confiance à une URL ou une clé fournie directement par
-  /// le client — seul un upload authentifié et déjà réalisé est accepté.
-  private async resolveOwnedUploadKey(
-    userId: string,
-    uploadId: string | undefined,
-  ): Promise<string | undefined> {
-    if (!uploadId) return undefined;
-    const upload = await this.prisma.upload.findFirst({
-      where: { id: uploadId, userId, status: 'UPLOADED' },
-      select: { objectKey: true },
-    });
-    if (!upload) {
-      throw new BadRequestException('Upload introuvable ou incomplet');
-    }
-    return upload.objectKey;
   }
 
   searchByUsername(currentUserId: string, query: string) {

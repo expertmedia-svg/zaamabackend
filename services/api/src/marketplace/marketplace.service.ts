@@ -8,6 +8,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { UploadsService } from '../uploads/uploads.service';
 import type {
   CreateBusinessDto,
   CreateOrderDto,
@@ -20,7 +21,10 @@ import type {
 
 @Injectable()
 export class MarketplaceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly uploads: UploadsService,
+  ) {}
 
   businesses(query: MarketplaceQueryDto) {
     return this.prisma.businessProfile.findMany({
@@ -126,9 +130,18 @@ export class MarketplaceService {
       select: { id: true },
     });
     if (!business) throw new NotFoundException('Boutique introuvable');
+    const { logoUploadId, coverUploadId, ...rest } = dto;
+    const [logoUrl, coverUrl] = await Promise.all([
+      this.uploads.resolveOwnedUploadKey(userId, logoUploadId),
+      this.uploads.resolveOwnedUploadKey(userId, coverUploadId),
+    ]);
     return this.prisma.businessProfile.update({
       where: { id: business.id },
-      data: dto,
+      data: {
+        ...rest,
+        ...(logoUploadId !== undefined ? { logoUrl } : {}),
+        ...(coverUploadId !== undefined ? { coverUrl } : {}),
+      },
     });
   }
 

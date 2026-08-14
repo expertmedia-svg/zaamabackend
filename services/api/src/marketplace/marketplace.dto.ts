@@ -73,6 +73,17 @@ export class UpdateBusinessDto {
   @IsString()
   @MaxLength(80)
   city?: string;
+
+  /// Id d'un upload déjà terminé, appartenant au propriétaire de la
+  /// boutique. Le serveur vérifie cette propriété avant de l'utiliser
+  /// comme logo/couverture — voir `UploadsService.resolveOwnedUploadKey`.
+  @IsOptional()
+  @IsUUID('4')
+  logoUploadId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  coverUploadId?: string;
 }
 
 export class CreateProductDto {

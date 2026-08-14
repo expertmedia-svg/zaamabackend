@@ -129,6 +129,27 @@ export class UploadsService {
     return this.storage.createSignedDownload(objectKey);
   }
 
+  /// Vérifie qu'un upload appartient bien à l'utilisateur et est terminé
+  /// avant d'en accepter la clé d'objet comme photo de profil, couverture
+  /// ou logo. Ne fait jamais confiance à une URL ou une clé fournie
+  /// directement par le client — seul un upload authentifié et déjà
+  /// réalisé est accepté. Partagé par tout ce qui accepte ce genre de
+  /// champ (comptes, groupes, boutiques...).
+  async resolveOwnedUploadKey(
+    userId: string,
+    uploadId: string | undefined,
+  ): Promise<string | undefined> {
+    if (!uploadId) return undefined;
+    const upload = await this.prisma.upload.findFirst({
+      where: { id: uploadId, userId, status: 'UPLOADED' },
+      select: { objectKey: true },
+    });
+    if (!upload) {
+      throw new BadRequestException('Upload introuvable ou incomplet');
+    }
+    return upload.objectKey;
+  }
+
   /// Durée de validité des liens de photo de profil/couverture/logo — bien
   /// plus longue que le téléchargement immédiat d'une pièce jointe, pour
   /// éviter qu'un avatar déjà affiché se casse en quelques minutes.
