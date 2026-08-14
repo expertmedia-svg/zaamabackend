@@ -1,4 +1,4 @@
-const appDir = process.env.ZAAMA_APP_DIR || "/home/debian/apps/zaama";
+const appDir = process.env.ZAAMA_APP_DIR || "/home/debian/apps/zaamabackend";
 const envFile =
   process.env.ZAAMA_ENV_FILE || "/home/debian/.config/zaama/zaama-api.env";
 

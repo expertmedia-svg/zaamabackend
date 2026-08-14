@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP_DIR="${ZAAMA_APP_DIR:-${HOME}/apps/zaama}"
+APP_DIR="${ZAAMA_APP_DIR:-${HOME}/apps/zaamabackend}"
 ENV_FILE="${ZAAMA_ENV_FILE:-${HOME}/.config/zaama/zaama-api.env}"
 PORT=4110
 
