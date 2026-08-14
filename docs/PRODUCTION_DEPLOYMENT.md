@@ -130,16 +130,12 @@ présentes, sans les redémarrer.
 ```bash
 cd /home/debian/apps/zaamabackend
 git pull --ff-only
-sudo install -m 0644 \
-  infra/deploy/nginx/zaamabackend.yingr-ai.com.conf \
-  /etc/nginx/sites-available/zaama-api.conf
-sudo nginx -t && sudo systemctl reload nginx
 ./infra/deploy/deploy-zaama.sh
 ```
 
 Le script cible seulement le processus `zaama-api` grâce à `--only zaama-api`.
 
-Pour déployer la préparation du test fermé publiée dans le commit `879243f` :
+Pour déployer la préparation du test fermé publiée dans le commit `b7d3ccf` :
 
 ```bash
 cd /home/debian/apps/zaamabackend
@@ -149,7 +145,7 @@ git log -1 --oneline
 curl -fsS http://127.0.0.1:4110/api/v1/health/ready
 ```
 
-Le résultat de `git log -1 --oneline` doit commencer par `879243f`.
+Le résultat de `git log -1 --oneline` doit commencer par `b7d3ccf`.
 
 ## 10. OTP pour 200 testeurs
 
@@ -182,17 +178,17 @@ cd /home/debian/apps/zaamabackend
 
 Le script de déploiement crée automatiquement le dossier privé
 `~/.local/share/zaama/uploads`, ajoute un secret HMAC aléatoire au fichier
-d’environnement s’il manque et conserve les permissions `700`/`600`. Nginx
-doit cependant recevoir une seule fois la nouvelle limite et le mode streaming :
+d’environnement s’il manque et conserve les permissions `700`/`600`. Les
+photos du pilote sont compressées sous la limite Nginx actuelle de 2 Mo :
 
 ```bash
 cd /home/debian/apps/zaamabackend
-sudo install -m 0644 \
-  infra/deploy/nginx/zaamabackend.yingr-ai.com.conf \
-  /etc/nginx/sites-available/zaama-api.conf
-sudo nginx -t && sudo systemctl reload nginx
 ./infra/deploy/deploy-zaama.sh
 ```
+
+Ne remplacez pas le site Nginx existant généré par Certbot. Si la limite média
+est augmentée plus tard, modifier uniquement `client_max_body_size` dans le
+bloc HTTPS existant, puis exécuter `sudo nginx -t` avant tout rechargement.
 
 Le média n’est pas public : les téléchargements utilisent des liens signés de
 10 minutes et l’API ne les délivre qu’aux membres de la conversation.
