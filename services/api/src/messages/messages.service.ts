@@ -39,7 +39,13 @@ export class MessagesService {
         attachments: {
           include: {
             upload: {
-              select: { id: true, objectKey: true, contentType: true, size: true },
+              select: {
+                id: true,
+                objectKey: true,
+                fileName: true,
+                contentType: true,
+                size: true,
+              },
             },
           },
         },
@@ -58,6 +64,7 @@ export class MessagesService {
             id: attachment.id,
             uploadId: attachment.uploadId,
             status: attachment.status,
+            fileName: attachment.upload.fileName,
             contentType: attachment.upload.contentType,
             size: Number(attachment.upload.size),
             downloadUrl: await this.uploads.createAuthorizedDownloadUrl(
@@ -258,10 +265,12 @@ export class MessagesService {
     dto: SendMessageDto,
   ): Record<string, unknown> | undefined {
     if (this.config.get<string>('NODE_ENV') !== 'production') return undefined;
-    if (dto.type === 'IMAGE' && !dto.uploadIds?.length) {
+    const encryptedMediaTypes = ['IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT'];
+    const isEncryptedMedia = encryptedMediaTypes.includes(dto.type);
+    if (isEncryptedMedia && !dto.uploadIds?.length) {
       throw new BadRequestException('Encrypted media upload is required');
     }
-    if (dto.type !== 'TEXT' && dto.type !== 'IMAGE') return undefined;
+    if (dto.type !== 'TEXT' && !isEncryptedMedia) return undefined;
     let envelope: Record<string, unknown>;
     try {
       envelope = JSON.parse(dto.encryptedPayload) as Record<string, unknown>;
@@ -283,7 +292,7 @@ export class MessagesService {
     }
     if (
       (dto.type === 'TEXT' && envelope.kind !== 'text') ||
-      (dto.type === 'IMAGE' && envelope.kind !== 'media')
+      (isEncryptedMedia && envelope.kind !== 'media')
     ) {
       throw new BadRequestException('Encrypted message kind does not match type');
     }

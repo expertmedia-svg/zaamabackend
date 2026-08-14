@@ -157,6 +157,14 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
     return this.relayCallSignal(client, 'call.offer', body);
   }
 
+  @SubscribeMessage('call.ringing')
+  callRinging(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() body: unknown,
+  ) {
+    return this.relayCallSignal(client, 'call.ringing', body);
+  }
+
   @SubscribeMessage('call.ready')
   callReady(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -210,6 +218,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
   private async relayCallSignal(
     client: AuthenticatedSocket,
     event:
+      | 'call.ringing'
       | 'call.ready'
       | 'call.offer'
       | 'call.answer'
@@ -225,9 +234,20 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
         participants: { some: { userId: auth.userId } },
         status: { in: ['RINGING', 'CONNECTING', 'CONNECTED'] },
       },
-      select: { participants: { select: { userId: true } } },
+      select: {
+        startedById: true,
+        participants: { select: { userId: true } },
+      },
     });
     if (!call) return { accepted: false };
+    const fromStarter = call.startedById === auth.userId;
+    if (
+      (event === 'call.offer' && !fromStarter) ||
+      (['call.ringing', 'call.ready', 'call.answer'].includes(event) &&
+        fromStarter)
+    ) {
+      return { accepted: false };
+    }
 
     for (const participant of call.participants) {
       if (participant.userId !== auth.userId) {
@@ -242,6 +262,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
 
   private validateCallSignal(
     event:
+      | 'call.ringing'
       | 'call.ready'
       | 'call.offer'
       | 'call.answer'
