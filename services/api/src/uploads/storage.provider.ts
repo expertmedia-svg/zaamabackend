@@ -27,6 +27,7 @@ export abstract class StorageProvider {
   abstract createSignedUpload(input: CreateSignedUploadInput): Promise<string>;
   abstract createSignedDownload(objectKey: string): Promise<string>;
   abstract head(objectKey: string): Promise<StoredObject>;
+  abstract remove(objectKey: string): Promise<void>;
 
   acceptDirectUpload(_input: DirectUploadInput): Promise<void> {
     return Promise.reject(new Error('Direct upload is disabled'));

@@ -5,6 +5,7 @@ import { UploadsService } from './uploads.service';
 import { S3StorageProvider } from './s3-storage.provider';
 import { StorageProvider } from './storage.provider';
 import { LocalStorageProvider } from './local-storage.provider';
+import { MediaRetentionService } from './media-retention.service';
 
 @Module({
   controllers: [UploadsController],
@@ -12,6 +13,7 @@ import { LocalStorageProvider } from './local-storage.provider';
     UploadsService,
     LocalStorageProvider,
     S3StorageProvider,
+    MediaRetentionService,
     {
       provide: StorageProvider,
       inject: [ConfigService, LocalStorageProvider, S3StorageProvider],

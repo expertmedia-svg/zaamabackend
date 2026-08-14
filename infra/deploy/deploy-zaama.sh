@@ -35,6 +35,10 @@ ensure_env_value() {
 ensure_env_value 'STORAGE_DRIVER' 'local'
 ensure_env_value 'LOCAL_STORAGE_DIR' "${HOME}/.local/share/zaama/uploads"
 ensure_env_value 'PUBLIC_API_URL' 'https://zaamabackend.yingr-ai.com/api/v1'
+ensure_env_value 'MEDIA_RELAY_CLEANUP_ENABLED' 'true'
+ensure_env_value 'MEDIA_RELAY_READ_RETENTION_DAYS' '30'
+ensure_env_value 'MEDIA_RELAY_MAX_RETENTION_DAYS' '90'
+ensure_env_value 'MEDIA_RELAY_CLEANUP_INTERVAL_HOURS' '6'
 if ! grep -Eq '^MEDIA_SIGNING_SECRET=.{32,}$' "${ENV_FILE}"; then
   if grep -q '^MEDIA_SIGNING_SECRET=' "${ENV_FILE}"; then
     sed -i "s|^MEDIA_SIGNING_SECRET=.*$|MEDIA_SIGNING_SECRET=$(openssl rand -hex 48)|" "${ENV_FILE}"

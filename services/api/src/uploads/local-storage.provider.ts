@@ -5,11 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  createHmac,
-  randomUUID,
-  timingSafeEqual,
-} from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   createReadStream,
   createWriteStream,
@@ -60,7 +56,9 @@ export class LocalStorageProvider extends StorageProvider {
       config.get<string>('STORAGE_DRIVER') !== 's3' &&
       this.secret.length < 32
     ) {
-      throw new Error('MEDIA_SIGNING_SECRET must contain at least 32 characters');
+      throw new Error(
+        'MEDIA_SIGNING_SECRET must contain at least 32 characters',
+      );
     }
     if (config.get<string>('STORAGE_DRIVER') !== 's3') {
       mkdirSync(this.root, { recursive: true, mode: 0o700 });
@@ -97,13 +95,25 @@ export class LocalStorageProvider extends StorageProvider {
     return { size: metadata.size, contentType: metadata.contentType };
   }
 
+  async remove(objectKey: string): Promise<void> {
+    const target = this.pathFor(objectKey);
+    await Promise.all([
+      fs.rm(target, { force: true }),
+      fs.rm(`${target}.json`, { force: true }),
+    ]);
+  }
+
   async acceptDirectUpload(input: DirectUploadInput): Promise<void> {
     const payload = this.verify(input.token, 'upload');
     if (input.contentType !== payload.contentType) {
-      throw new BadRequestException('Content type does not match signed upload');
+      throw new BadRequestException(
+        'Content type does not match signed upload',
+      );
     }
     if (input.contentLength != null && input.contentLength !== payload.size) {
-      throw new BadRequestException('Content length does not match signed upload');
+      throw new BadRequestException(
+        'Content length does not match signed upload',
+      );
     }
 
     const target = this.pathFor(payload.objectKey);
@@ -121,14 +131,23 @@ export class LocalStorageProvider extends StorageProvider {
       },
     });
     try {
-      await pipeline(input.body, limiter, createWriteStream(temporary, { flags: 'wx', mode: 0o600 }));
+      await pipeline(
+        input.body,
+        limiter,
+        createWriteStream(temporary, { flags: 'wx', mode: 0o600 }),
+      );
       if (received !== payload.size) {
-        throw new BadRequestException('Uploaded object size does not match request');
+        throw new BadRequestException(
+          'Uploaded object size does not match request',
+        );
       }
       await fs.rename(temporary, target);
       await fs.writeFile(
         `${target}.json`,
-        JSON.stringify({ contentType: payload.contentType, size: payload.size }),
+        JSON.stringify({
+          contentType: payload.contentType,
+          size: payload.size,
+        }),
         { encoding: 'utf8', mode: 0o600 },
       );
     } catch (error) {
@@ -142,7 +161,8 @@ export class LocalStorageProvider extends StorageProvider {
     const target = this.pathFor(payload.objectKey);
     if (!existsSync(target)) throw new NotFoundException('Media not found');
     const stat = await fs.stat(target);
-    if (stat.size !== payload.size) throw new NotFoundException('Media is unavailable');
+    if (stat.size !== payload.size)
+      throw new NotFoundException('Media is unavailable');
     return {
       body: createReadStream(target),
       size: payload.size,
@@ -175,7 +195,8 @@ export class LocalStorageProvider extends StorageProvider {
 
   private verify(token: string, operation: SignedMediaToken['operation']) {
     const [encoded, signature, extra] = token.split('.');
-    if (!encoded || !signature || extra) throw new UnauthorizedException('Invalid media token');
+    if (!encoded || !signature || extra)
+      throw new UnauthorizedException('Invalid media token');
     const expected = createHmac('sha256', this.secret)
       .update(encoded)
       .digest('base64url');
@@ -186,7 +207,9 @@ export class LocalStorageProvider extends StorageProvider {
     }
     let payload: SignedMediaToken;
     try {
-      payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as SignedMediaToken;
+      payload = JSON.parse(
+        Buffer.from(encoded, 'base64url').toString('utf8'),
+      ) as SignedMediaToken;
     } catch {
       throw new UnauthorizedException('Invalid media token');
     }

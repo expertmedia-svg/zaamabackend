@@ -56,6 +56,11 @@ describe('LocalStorageProvider', () => {
     const chunks: Buffer[] = [];
     for await (const chunk of download.body) chunks.push(Buffer.from(chunk));
     expect(Buffer.concat(chunks)).toEqual(content);
+
+    await provider.remove('media/user/file.jpg');
+    await expect(provider.head('media/user/file.jpg')).rejects.toThrow(
+      'Media not found',
+    );
   });
 
   it('rejects a modified signed token', async () => {

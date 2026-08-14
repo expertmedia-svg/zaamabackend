@@ -2,15 +2,13 @@ import {
   HeadObjectCommand,
   GetObjectCommand,
   PutObjectCommand,
+  DeleteObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type {
-  CreateSignedUploadInput,
-  StoredObject,
-} from './storage.provider';
+import type { CreateSignedUploadInput, StoredObject } from './storage.provider';
 import { StorageProvider } from './storage.provider';
 
 @Injectable()
@@ -61,5 +59,11 @@ export class S3StorageProvider extends StorageProvider {
       size: result.ContentLength ?? 0,
       contentType: result.ContentType,
     };
+  }
+
+  async remove(objectKey: string): Promise<void> {
+    await this.client.send(
+      new DeleteObjectCommand({ Bucket: this.bucket, Key: objectKey }),
+    );
   }
 }

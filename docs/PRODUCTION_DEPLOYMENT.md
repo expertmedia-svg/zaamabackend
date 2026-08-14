@@ -177,6 +177,10 @@ cd /home/debian/apps/zaamabackend
 
 ## 11. Activer le stockage média local, sans Docker
 
+Le stockage local sert de relais chiffré temporaire. La sauvegarde durable par
+utilisateur et la politique de rétention sont décrites dans
+[`GOOGLE_DRIVE_BACKUP.md`](GOOGLE_DRIVE_BACKUP.md).
+
 Le script de déploiement crée automatiquement le dossier privé
 `~/.local/share/zaama/uploads`, ajoute un secret HMAC aléatoire au fichier
 d’environnement s’il manque et conserve les permissions `700`/`600`. Les
