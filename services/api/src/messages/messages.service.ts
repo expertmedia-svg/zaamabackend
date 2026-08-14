@@ -67,8 +67,24 @@ export class MessagesService {
     };
   }
 
-  async send(userId: string, dto: SendMessageDto) {
+  async send(userId: string, dto: SendMessageDto, senderDeviceId?: string) {
     const envelope = this.assertProductionEncryption(dto);
+    if (envelope) {
+      if (!senderDeviceId || envelope.senderDeviceId !== senderDeviceId) {
+        throw new BadRequestException('Encrypted envelope sender is invalid');
+      }
+      const registeredSender = await this.prisma.encryptionDevice.findUnique({
+        where: { deviceId: senderDeviceId },
+        select: { identityPublicKey: true },
+      });
+      if (
+        !registeredSender ||
+        Buffer.from(registeredSender.identityPublicKey).toString('base64') !==
+          envelope.senderPublicKey
+      ) {
+        throw new BadRequestException('Encrypted envelope key is not registered');
+      }
+    }
     const member = await this.prisma.conversationMember.findUnique({
       where: {
         conversationId_userId: { conversationId: dto.conversationId, userId },

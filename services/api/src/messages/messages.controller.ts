@@ -11,7 +11,7 @@ export class MessagesController {
 
   @Post()
   send(@Req() request: AuthenticatedRequest, @Body() dto: SendMessageDto) {
-    return this.messagesService.send(request.user.id, dto);
+    return this.messagesService.send(request.user.id, dto, request.user.deviceId);
   }
 
   @Patch(':id')
