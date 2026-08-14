@@ -4,6 +4,8 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  IsArray,
+  ArrayMaxSize,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -26,6 +28,12 @@ export class SendMessageDto {
   @IsOptional()
   @IsUUID()
   replyToId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsUUID('4', { each: true })
+  uploadIds?: string[];
 }
 
 export class UpdateMessageDto {

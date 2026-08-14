@@ -27,6 +27,7 @@ accusé READ, Story et vue, appel connecté/terminé, profil et appareils.
 - Les médias de test sont des enveloppes limitées ; S3 chiffré est requis.
 - Les appels testent la signalisation et la persistance ; TURN/WebRTC est requis
   pour transporter réellement l’audio/vidéo entre deux réseaux.
-- Le client utilise encore l’enveloppe `DEV_PLAINTEXT`; une implémentation
-  Signal auditée est obligatoire avant de revendiquer le chiffrement E2EE.
+- Tester la rotation, la révocation et la récupération des clés par appareil.
+  L’enveloppe X25519/HKDF/AES-GCM doit être auditée avant toute comparaison
+  publique avec le protocole Signal.
 - FCM/APNs, observabilité, sauvegardes, pentest et tests de charge restent requis.

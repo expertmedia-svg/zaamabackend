@@ -23,6 +23,7 @@ async function bootstrap(): Promise<void> {
     .filter(Boolean);
 
   app.use(json({ limit: '2mb' }));
+  // Les PUT signés de médias restent en flux brut; Express ne les met jamais en mémoire.
   app.use(urlencoded({ extended: true, limit: '2mb' }));
   app.use(helmet());
   if (config.get<string>('TRUST_PROXY') === 'true') {
@@ -66,6 +67,38 @@ function validateProductionConfig(config: ConfigService): void {
     return value.length < 32 || /change_me|dev-secret/i.test(value);
   });
   if (!config.get<string>('DATABASE_URL')) unsafe.push('DATABASE_URL');
+  const yengaPayValues = [
+    'YENGAPAY_API_KEY',
+    'YENGAPAY_ORGANIZATION_ID',
+    'YENGAPAY_PROJECT_ID',
+    'YENGAPAY_WEBHOOK_SECRET',
+  ].map((key) => config.get<string>(key)?.trim() ?? '');
+  if (yengaPayValues.some(Boolean) && yengaPayValues.some((value) => !value)) {
+    unsafe.push('YENGAPAY_*');
+  }
+  const firebaseValues = [
+    config.get<string>('FIREBASE_PROJECT_ID')?.trim() ?? '',
+    config.get<string>('GOOGLE_APPLICATION_CREDENTIALS')?.trim() ?? '',
+  ];
+  if (firebaseValues.some(Boolean) && firebaseValues.some((value) => !value)) {
+    unsafe.push('FIREBASE_*');
+  }
+  const turnValues = [
+    config.get<string>('TURN_URL')?.trim() ?? '',
+    config.get<string>('TURN_SHARED_SECRET')?.trim() ?? '',
+  ];
+  if (turnValues.some(Boolean) && turnValues.some((value) => !value)) {
+    unsafe.push('TURN_*');
+  }
+  if (config.get<string>('STORAGE_DRIVER') !== 's3') {
+    const mediaSecret = config.get<string>('MEDIA_SIGNING_SECRET') ?? '';
+    if (mediaSecret.length < 32 || /change_me/i.test(mediaSecret)) {
+      unsafe.push('MEDIA_SIGNING_SECRET');
+    }
+    if (!config.get<string>('PUBLIC_API_URL')?.startsWith('https://')) {
+      unsafe.push('PUBLIC_API_URL');
+    }
+  }
   if (unsafe.length > 0) {
     throw new Error(
       `Production configuration is unsafe or incomplete: ${unsafe.join(', ')}`,

@@ -171,6 +171,7 @@ enum PaymentProvider {
   SANDBOX
   ORANGE_MONEY
   MOOV_MONEY
+  YENGAPAY
 }
 
 model User {

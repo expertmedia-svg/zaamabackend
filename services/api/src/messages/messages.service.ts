@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -7,12 +8,18 @@ import { PrismaService } from '../database/prisma.service';
 import { ReceiptState } from '../generated/prisma/enums';
 import { RealtimePublisher } from '../realtime/realtime.publisher';
 import type { MessagePageQueryDto, SendMessageDto } from './messages.dto';
+import { PushService } from '../push/push.service';
+import { UploadsService } from '../uploads/uploads.service';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class MessagesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimePublisher,
+    private readonly push: PushService,
+    private readonly uploads: UploadsService,
+    private readonly config: ConfigService,
   ) {}
 
   async list(userId: string, conversationId: string, query: MessagePageQueryDto) {
@@ -23,7 +30,13 @@ export class MessagesService {
       include: {
         receipts: { select: { userId: true, state: true, updatedAt: true } },
         reactions: { select: { userId: true, emoji: true, createdAt: true } },
-        attachments: true,
+        attachments: {
+          include: {
+            upload: {
+              select: { id: true, objectKey: true, contentType: true, size: true },
+            },
+          },
+        },
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: pageSize + 1,
@@ -31,13 +44,31 @@ export class MessagesService {
     });
     const hasMore = messages.length > pageSize;
     if (hasMore) messages.pop();
+    const data = await Promise.all(
+      messages.reverse().map(async (message) => ({
+        ...message,
+        attachments: await Promise.all(
+          message.attachments.map(async (attachment) => ({
+            id: attachment.id,
+            uploadId: attachment.uploadId,
+            status: attachment.status,
+            contentType: attachment.upload.contentType,
+            size: Number(attachment.upload.size),
+            downloadUrl: await this.uploads.createAuthorizedDownloadUrl(
+              attachment.upload.objectKey,
+            ),
+          })),
+        ),
+      })),
+    );
     return {
-      data: messages.reverse(),
+      data,
       nextCursor: hasMore ? messages[0]?.id : null,
     };
   }
 
   async send(userId: string, dto: SendMessageDto) {
+    const envelope = this.assertProductionEncryption(dto);
     const member = await this.prisma.conversationMember.findUnique({
       where: {
         conversationId_userId: { conversationId: dto.conversationId, userId },
@@ -51,6 +82,30 @@ export class MessagesService {
     if (!member) throw new ForbiddenException('Conversation access denied');
     await this.assertNotBlocked(userId, member.conversation.members.map((entry) => entry.userId));
 
+    if (envelope) {
+      const expectedDeviceIds = await this.prisma.encryptionDevice.findMany({
+        where: {
+          device: {
+            user: { conversationMembers: { some: { conversationId: dto.conversationId } } },
+            sessions: { some: { revokedAt: null, expiresAt: { gt: new Date() } } },
+          },
+        },
+        select: { deviceId: true },
+        take: 256,
+      });
+      const received = new Set(
+        (envelope.envelopes as Array<Record<string, unknown>>)
+          .map((entry) => entry.deviceId)
+          .filter((id): id is string => typeof id === 'string'),
+      );
+      if (
+        expectedDeviceIds.length === 0 ||
+        expectedDeviceIds.some((device) => !received.has(device.deviceId))
+      ) {
+        throw new BadRequestException('Encrypted envelope recipients are incomplete');
+      }
+    }
+
     const recipientIds = member.conversation.members
       .map((entry) => entry.userId)
       .filter((id) => id !== userId);
@@ -62,6 +117,20 @@ export class MessagesService {
           select: { id: true },
         });
         if (!reply) throw new NotFoundException('Reply message not found');
+      }
+
+      if (dto.uploadIds?.length) {
+        const uploads = await transaction.upload.findMany({
+          where: {
+            id: { in: dto.uploadIds },
+            userId,
+            status: 'UPLOADED',
+          },
+          select: { id: true },
+        });
+        if (uploads.length !== new Set(dto.uploadIds).size) {
+          throw new ForbiddenException('Upload is not ready or does not belong to sender');
+        }
       }
 
       const created = await transaction.message.upsert({
@@ -79,6 +148,15 @@ export class MessagesService {
           type: dto.type,
           encryptedPayload: dto.encryptedPayload,
           replyToId: dto.replyToId,
+          attachments:
+            dto.uploadIds?.length
+              ? {
+                  create: dto.uploadIds.map((uploadId) => ({
+                    uploadId,
+                    status: 'READY',
+                  })),
+                }
+              : undefined,
           receipts: {
             create: recipientIds.map((recipientId) => ({ userId: recipientId })),
           },
@@ -98,11 +176,65 @@ export class MessagesService {
     for (const recipientId of recipientIds) {
       this.realtime.toUser(recipientId, 'message.new', message);
     }
+    const sender = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { profile: { select: { displayName: true } } },
+    });
+    void this.push.sendNewMessage(recipientIds, {
+      senderName: sender?.profile?.displayName ?? 'ZAAMA',
+      conversationId: dto.conversationId,
+      messageId: message.id,
+    });
     this.realtime.toConversation(dto.conversationId, 'conversation.updated', {
       conversationId: dto.conversationId,
       lastMessageAt: message.createdAt,
     });
     return message;
+  }
+
+  private assertProductionEncryption(
+    dto: SendMessageDto,
+  ): Record<string, unknown> | undefined {
+    if (this.config.get<string>('NODE_ENV') !== 'production') return undefined;
+    if (dto.type === 'IMAGE' && !dto.uploadIds?.length) {
+      throw new BadRequestException('Encrypted media upload is required');
+    }
+    if (dto.type !== 'TEXT' && dto.type !== 'IMAGE') return undefined;
+    let envelope: Record<string, unknown>;
+    try {
+      envelope = JSON.parse(dto.encryptedPayload) as Record<string, unknown>;
+    } catch {
+      throw new BadRequestException('Encrypted message envelope is required');
+    }
+    const recipients = envelope.envelopes;
+    if (
+      envelope.v !== 1 ||
+      envelope.algorithm !== 'X25519-HKDF-SHA256-AES256GCM' ||
+      (envelope.kind !== 'text' && envelope.kind !== 'media') ||
+      !Array.isArray(recipients) ||
+      recipients.length === 0 ||
+      recipients.length > 256 ||
+      typeof envelope.senderDeviceId !== 'string' ||
+      typeof envelope.senderPublicKey !== 'string'
+    ) {
+      throw new BadRequestException('Invalid encrypted message envelope');
+    }
+    if (
+      (dto.type === 'TEXT' && envelope.kind !== 'text') ||
+      (dto.type === 'IMAGE' && envelope.kind !== 'media')
+    ) {
+      throw new BadRequestException('Encrypted message kind does not match type');
+    }
+    const recipientIds = (recipients as Array<Record<string, unknown>>).map(
+      (entry) => entry.deviceId,
+    );
+    if (
+      recipientIds.some((id) => typeof id !== 'string') ||
+      new Set(recipientIds).size !== recipientIds.length
+    ) {
+      throw new BadRequestException('Encrypted message recipients are invalid');
+    }
+    return envelope;
   }
 
   async update(userId: string, id: string, encryptedPayload: string) {

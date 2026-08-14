@@ -10,7 +10,30 @@ export interface StoredObject {
   contentType?: string;
 }
 
+export interface DirectUploadInput {
+  token: string;
+  body: Readable;
+  contentType?: string;
+  contentLength?: number;
+}
+
+export interface DirectDownload {
+  body: Readable;
+  size: number;
+  contentType: string;
+}
+
 export abstract class StorageProvider {
   abstract createSignedUpload(input: CreateSignedUploadInput): Promise<string>;
+  abstract createSignedDownload(objectKey: string): Promise<string>;
   abstract head(objectKey: string): Promise<StoredObject>;
+
+  acceptDirectUpload(_input: DirectUploadInput): Promise<void> {
+    return Promise.reject(new Error('Direct upload is disabled'));
+  }
+
+  openDirectDownload(_token: string): Promise<DirectDownload> {
+    return Promise.reject(new Error('Direct download is disabled'));
+  }
 }
+import type { Readable } from 'node:stream';

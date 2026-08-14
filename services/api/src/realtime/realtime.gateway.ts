@@ -149,6 +149,46 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
     return this.publishTyping(client, body.conversationId, false);
   }
 
+  @SubscribeMessage('call.offer')
+  callOffer(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() body: unknown,
+  ) {
+    return this.relayCallSignal(client, 'call.offer', body);
+  }
+
+  @SubscribeMessage('call.ready')
+  callReady(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() body: unknown,
+  ) {
+    return this.relayCallSignal(client, 'call.ready', body);
+  }
+
+  @SubscribeMessage('call.answer')
+  callAnswer(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() body: unknown,
+  ) {
+    return this.relayCallSignal(client, 'call.answer', body);
+  }
+
+  @SubscribeMessage('call.ice')
+  callIce(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() body: unknown,
+  ) {
+    return this.relayCallSignal(client, 'call.ice', body);
+  }
+
+  @SubscribeMessage('call.hangup')
+  callHangup(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() body: unknown,
+  ) {
+    return this.relayCallSignal(client, 'call.hangup', body);
+  }
+
   private async publishTyping(
     client: AuthenticatedSocket,
     conversationId: string,
@@ -165,6 +205,76 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
       userId: auth.userId,
     });
     return { accepted: true };
+  }
+
+  private async relayCallSignal(
+    client: AuthenticatedSocket,
+    event:
+      | 'call.ready'
+      | 'call.offer'
+      | 'call.answer'
+      | 'call.ice'
+      | 'call.hangup',
+    value: unknown,
+  ) {
+    const auth = this.requireAuth(client);
+    const body = this.validateCallSignal(event, value);
+    const call = await this.prisma.call.findFirst({
+      where: {
+        id: body.callId,
+        participants: { some: { userId: auth.userId } },
+        status: { in: ['RINGING', 'CONNECTING', 'CONNECTED'] },
+      },
+      select: { participants: { select: { userId: true } } },
+    });
+    if (!call) return { accepted: false };
+
+    for (const participant of call.participants) {
+      if (participant.userId !== auth.userId) {
+        this.server.to(`user:${participant.userId}`).emit(event, {
+          ...body,
+          fromUserId: auth.userId,
+        });
+      }
+    }
+    return { accepted: true };
+  }
+
+  private validateCallSignal(
+    event:
+      | 'call.ready'
+      | 'call.offer'
+      | 'call.answer'
+      | 'call.ice'
+      | 'call.hangup',
+    value: unknown,
+  ): Record<string, unknown> & { callId: string } {
+    if (!value || typeof value !== 'object') throw new Error('invalid call signal');
+    const body = value as Record<string, unknown>;
+    const callId = typeof body.callId === 'string' ? body.callId : '';
+    if (!/^[0-9a-f-]{36}$/i.test(callId)) throw new Error('invalid call id');
+    if (event === 'call.offer' || event === 'call.answer') {
+      if (typeof body.sdp !== 'string' || body.sdp.length > 200_000) {
+        throw new Error('invalid session description');
+      }
+      if (body.type !== 'offer' && body.type !== 'answer') {
+        throw new Error('invalid session description type');
+      }
+      return { callId, sdp: body.sdp, type: body.type };
+    }
+    if (event === 'call.ice') {
+      if (typeof body.candidate !== 'string' || body.candidate.length > 8_192) {
+        throw new Error('invalid ICE candidate');
+      }
+      return {
+        callId,
+        candidate: body.candidate,
+        sdpMid: typeof body.sdpMid === 'string' ? body.sdpMid : null,
+        sdpMLineIndex:
+          typeof body.sdpMLineIndex === 'number' ? body.sdpMLineIndex : null,
+      };
+    }
+    return { callId };
   }
 
   private extractToken(client: Socket): string {

@@ -130,6 +130,10 @@ présentes, sans les redémarrer.
 ```bash
 cd /home/debian/apps/zaamabackend
 git pull --ff-only
+sudo install -m 0644 \
+  infra/deploy/nginx/zaamabackend.yingr-ai.com.conf \
+  /etc/nginx/sites-available/zaama-api.conf
+sudo nginx -t && sudo systemctl reload nginx
 ./infra/deploy/deploy-zaama.sh
 ```
 
@@ -174,6 +178,41 @@ cd /home/debian/apps/zaamabackend
 ./infra/deploy/deploy-zaama.sh
 ```
 
+## 11. Activer le stockage média local, sans Docker
+
+Le script de déploiement crée automatiquement le dossier privé
+`~/.local/share/zaama/uploads`, ajoute un secret HMAC aléatoire au fichier
+d’environnement s’il manque et conserve les permissions `700`/`600`. Nginx
+doit cependant recevoir une seule fois la nouvelle limite et le mode streaming :
+
+```bash
+cd /home/debian/apps/zaamabackend
+sudo install -m 0644 \
+  infra/deploy/nginx/zaamabackend.yingr-ai.com.conf \
+  /etc/nginx/sites-available/zaama-api.conf
+sudo nginx -t && sudo systemctl reload nginx
+./infra/deploy/deploy-zaama.sh
+```
+
+Le média n’est pas public : les téléchargements utilisent des liens signés de
+10 minutes et l’API ne les délivre qu’aux membres de la conversation.
+
+## 12. Appels réels : TURN natif isolé, sans Docker
+
+Après avoir vérifié que les ports `3478`, `5349` et `49160:49260` ne sont pas
+utilisés par un autre service :
+
+```bash
+cd /home/debian/apps/zaamabackend
+sudo ZAAMA_TURN_DOMAIN=zaamabackend.yingr-ai.com \
+  ./infra/deploy/provision-zaama-turn.sh
+./infra/deploy/deploy-zaama.sh
+```
+
+Ouvrir dans le pare-feu de la VM : TCP/UDP `3478`, TCP `5349` et UDP
+`49160:49260`. Le service créé s’appelle uniquement `coturn-zaama`; le script
+s’arrête si un port TURN est déjà occupé.
+
 ## Limites avant ouverture publique
 
 Ce mode est un pilote privé, pas encore une publication nationale :
@@ -181,6 +220,6 @@ Ce mode est un pilote privé, pas encore une publication nationale :
 - OTP fixe limité aux numéros explicitement autorisés ;
 - fournisseur SMS réel encore à intégrer ;
 - enveloppe de chiffrement mobile encore destinée au développement ;
-- stockage S3, TURN, push et connecteurs Orange/Moov à configurer ;
+- compte Firebase/FCM et TURN à configurer avec leurs secrets réels ;
 - signature Play Store définitive à créer et sauvegarder ;
 - pentest, audit cryptographique, charge et revue légale requis.

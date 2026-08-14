@@ -1,9 +1,20 @@
-import { IsEnum, IsInt, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export enum WalletProviderDto {
   SANDBOX = 'SANDBOX',
   ORANGE_MONEY = 'ORANGE_MONEY',
   MOOV_MONEY = 'MOOV_MONEY',
+  YENGAPAY = 'YENGAPAY',
 }
 
 export class TopUpWalletDto {
@@ -15,9 +26,10 @@ export class TopUpWalletDto {
   @IsEnum(WalletProviderDto)
   provider!: WalletProviderDto;
 
+  @IsOptional()
   @IsString()
-  @Matches(/^\+226\d{8}$/)
-  phone!: string;
+  @Matches(/^\+[1-9]\d{7,14}$/)
+  phone?: string;
 
   @IsString()
   @MaxLength(100)

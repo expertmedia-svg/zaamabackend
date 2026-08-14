@@ -1,33 +1,52 @@
 {
-  "name": "zaama-backend",
-  "version": "0.1.0",
+  "name": "project-saaga",
   "private": true,
-  "description": "Backend souverain ZAAMA : messagerie, groupes, stories, marketplace et wallet XOF.",
-  "license": "UNLICENSED",
-  "engines": {
-    "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
-  },
+  "version": "0.1.0",
   "workspaces": [
-    "services/api"
+    "apps/*",
+    "services/*",
+    "packages/*"
   ],
   "scripts": {
     "dev": "npm --workspace services/api run start:dev",
-    "build": "npm --workspace services/api run build",
-    "start:prod": "node services/api/dist/main.js",
+    "dev:admin": "npm --workspace apps/admin run dev",
+    "db:status": "prisma migrate status",
+    "setup:local": "npm install && prisma generate && prisma migrate deploy && prisma db seed",
+    "build": "npm run build --workspace services/api && npm run build --workspace apps/admin",
     "test": "npm --workspace services/api test -- --runInBand",
-    "test:e2e": "npm --workspace services/api run test:e2e",
+    "test:e2e:local": "powershell -ExecutionPolicy Bypass -File ./infra/scripts/e2e-local.ps1",
     "lint": "npm --workspace services/api run lint",
-    "migrate:deploy": "prisma migrate deploy",
-    "migrate:status": "prisma migrate status",
+    "migrate": "prisma migrate deploy && prisma generate",
     "migrate:dev": "prisma migrate dev && prisma generate",
+    "seed": "prisma db seed",
+    "seed:local": "tsc -p prisma/tsconfig.seed.json && node .tmp/seed/prisma/seed.js",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
-    "seed": "prisma db seed",
-    "seed:local": "tsc -p prisma/tsconfig.seed.json && node .tmp/seed/prisma/seed.js"
+    "format": "prettier --write .",
+    "make:dev": "npm run dev",
+    "make:test": "npm test",
+    "make:lint": "npm run lint",
+    "make:build": "npm run build"
   },
   "devDependencies": {
-    "dotenv": "^17.4.1",
+    "@eslint/js": "^10.0.1",
+    "@nestjs/cli": "^11.0.24",
+    "@prisma/client": "^7.9.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.2.0",
+    "@typescript-eslint/eslint-plugin": "^8.67.0",
+    "@typescript-eslint/parser": "^8.67.0",
+    "eslint": "^10.8.1",
+    "prettier": "^3.3.3",
     "prisma": "^7.9.1",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3"
-  }
+  },
+  "description": "Project Saaga est une messagerie souveraine orientée Afrique, conçue pour fonctionner dans des conditions de réseau instables, avec une forte confidentialité, un stockage local et une base de code prête pour l’évolution vers plusieurs millions d’utilisateurs.",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
 }

@@ -14,6 +14,11 @@ export class CallsController {
     return this.callsService.list(request.user.id);
   }
 
+  @Get('ice-servers')
+  iceServers(@Req() request: AuthenticatedRequest) {
+    return this.callsService.getIceServers(request.user.id);
+  }
+
   @Post()
   create(@Req() request: AuthenticatedRequest, @Body() dto: CreateCallDto) {
     return this.callsService.create(request.user.id, dto);

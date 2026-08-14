@@ -38,6 +38,7 @@ JWT_SECRET="$(openssl rand -hex 48)"
 JWT_REFRESH_SECRET="$(openssl rand -hex 48)"
 CONTACT_HASH_SECRET="$(openssl rand -hex 48)"
 ADMIN_JWT_SECRET="$(openssl rand -hex 48)"
+MEDIA_SIGNING_SECRET="$(openssl rand -hex 48)"
 
 sudo -u postgres psql -v ON_ERROR_STOP=1 \
   -c "CREATE ROLE ${DB_ROLE} LOGIN PASSWORD '${DB_PASSWORD}'"
@@ -69,8 +70,19 @@ ORANGE_SMS_CLIENT_ID=
 ORANGE_SMS_CLIENT_SECRET=
 ORANGE_SMS_SENDER_ADDRESS=tel:+2260000
 ORANGE_SMS_SENDER_NAME=
+YENGAPAY_BASE_URL=https://api.yengapay.com/api/v1
+YENGAPAY_API_KEY=
+YENGAPAY_ORGANIZATION_ID=
+YENGAPAY_PROJECT_ID=
+YENGAPAY_WEBHOOK_SECRET=
+FIREBASE_PROJECT_ID=
+GOOGLE_APPLICATION_CREDENTIALS=/home/debian/.config/zaama/firebase-service-account.json
 CORS_ORIGINS=https://zaamabackend.yingr-ai.com
 REDIS_URL=
+STORAGE_DRIVER=local
+LOCAL_STORAGE_DIR=/home/debian/.local/share/zaama/uploads
+PUBLIC_API_URL=https://zaamabackend.yingr-ai.com/api/v1
+MEDIA_SIGNING_SECRET=${MEDIA_SIGNING_SECRET}
 S3_ENDPOINT=
 S3_BUCKET=zaama-prod
 S3_ACCESS_KEY=
@@ -79,11 +91,12 @@ S3_REGION=us-east-1
 S3_PUBLIC_URL=
 S3_FORCE_PATH_STYLE=true
 MAX_UPLOAD_BYTES=104857600
+STUN_URL=
 TURN_URL=
-TURN_USERNAME=
-TURN_PASSWORD=
+TURN_SHARED_SECRET=
 EOF
 chmod 600 "${ENV_FILE}"
+install -d -m 700 /home/debian/.local/share/zaama/uploads
 
 printf '\nProvisionnement ZAAMA terminé.\n'
 printf 'Base créée: %s (propriétaire %s)\n' "${DB_NAME}" "${DB_ROLE}"

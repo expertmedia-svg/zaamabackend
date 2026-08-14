@@ -1,5 +1,6 @@
 import {
   HeadObjectCommand,
+  GetObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -42,6 +43,14 @@ export class S3StorageProvider extends StorageProvider {
       Metadata: input.checksum ? { checksum: input.checksum } : undefined,
     });
     return getSignedUrl(this.client, command, { expiresIn: 15 * 60 });
+  }
+
+  createSignedDownload(objectKey: string): Promise<string> {
+    return getSignedUrl(
+      this.client,
+      new GetObjectCommand({ Bucket: this.bucket, Key: objectKey }),
+      { expiresIn: 10 * 60 },
+    );
   }
 
   async head(objectKey: string): Promise<StoredObject> {

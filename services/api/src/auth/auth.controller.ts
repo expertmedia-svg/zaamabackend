@@ -59,6 +59,15 @@ export class AuthController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('session')
+  currentSession(@Req() request: AuthenticatedRequest) {
+    return {
+      sessionId: request.user.sessionId,
+      deviceId: request.user.deviceId,
+    };
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('sessions')
   sessions(@Req() request: AuthenticatedRequest) {
     return this.authService.listSessions(request.user.id);

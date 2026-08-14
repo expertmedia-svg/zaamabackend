@@ -10,12 +10,17 @@ import { randomUUID } from 'node:crypto';
 import { Prisma, type LedgerAccount } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import type { TopUpWalletDto, TransferWalletDto } from './wallet.dto';
+import {
+  YengaPayService,
+  type YengaPayPaymentUpdate,
+} from './yengapay.service';
 
 @Injectable()
 export class WalletService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly yengaPay: YengaPayService,
   ) {}
 
   async overview(userId: string) {
@@ -36,10 +41,9 @@ export class WalletService {
   }
 
   async topUp(userId: string, dto: TopUpWalletDto) {
+    if (dto.provider === 'YENGAPAY') return this.createYengaPayTopUp(userId, dto);
     if (dto.provider !== 'SANDBOX') {
-      throw new ServiceUnavailableException(
-        'Connecteur en attente du contrat marchand et des identifiants opérateur',
-      );
+      throw new BadRequestException('Utilisez le checkout sécurisé YengaPay');
     }
     if (
       this.config.get<string>('NODE_ENV') === 'production' ||
@@ -79,7 +83,7 @@ export class WalletService {
             provider: 'SANDBOX',
             providerReference: this.reference('SBX'),
             amountXof: dto.amountXof,
-            label: `Recharge test ${dto.phone}`,
+            label: `Recharge test ${dto.phone ?? ''}`.trim(),
             completedAt: new Date(),
             entries: {
               create: [
@@ -92,6 +96,51 @@ export class WalletService {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+  }
+
+  async refreshTopUp(userId: string, operationId: string) {
+    const operation = await this.prisma.walletOperation.findFirst({
+      where: {
+        id: operationId,
+        initiatedById: userId,
+        type: 'TOP_UP',
+        provider: 'YENGAPAY',
+      },
+    });
+    if (!operation) throw new NotFoundException('Recharge introuvable');
+    if (operation.status !== 'PENDING' || !operation.providerReference) {
+      return this.publicTopUp(operation);
+    }
+
+    const intent = await this.yengaPay.getPaymentIntent(operation.providerReference);
+    if (intent.transactionStatus === 'DONE') {
+      const updated = await this.applyYengaPayUpdate({
+        paymentStatus: 'DONE',
+        paymentIntentId: intent.id,
+        reference: intent.reference,
+        paymentAmount: intent.paymentAmount,
+        paymentFees: intent.paymentFees,
+        currency: intent.currency,
+      });
+      return this.publicTopUp(updated);
+    }
+    if (['FAILED', 'CANCELLED', 'EXPIRED'].includes(intent.transactionStatus)) {
+      const updated = await this.applyYengaPayUpdate({
+        paymentStatus: intent.transactionStatus,
+        paymentIntentId: intent.id,
+        reference: intent.reference,
+        paymentAmount: intent.paymentAmount,
+        paymentFees: intent.paymentFees,
+        currency: intent.currency,
+      });
+      return this.publicTopUp(updated);
+    }
+    return this.publicTopUp(operation, intent.checkoutUrl);
+  }
+
+  async handleYengaPayWebhook(payload: YengaPayPaymentUpdate) {
+    const operation = await this.applyYengaPayUpdate(payload);
+    return { received: true, operationId: operation.id, status: operation.status };
   }
 
   async transfer(userId: string, dto: TransferWalletDto) {
@@ -217,6 +266,195 @@ export class WalletService {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+  }
+
+  private async createYengaPayTopUp(userId: string, dto: TopUpWalletDto) {
+    if (!this.yengaPay.isConfigured()) {
+      throw new ServiceUnavailableException('Le paiement YengaPay n’est pas configuré');
+    }
+    const phone = dto.phone ?? (await this.userPhone(userId));
+    const scopedKey = `${userId}:topup:${dto.idempotencyKey}`;
+    const existing = await this.prisma.walletOperation.findUnique({
+      where: { idempotencyKey: scopedKey },
+    });
+    if (existing) {
+      if (existing.provider !== 'YENGAPAY') {
+        throw new ConflictException('Cette demande de recharge existe déjà');
+      }
+      return this.refreshTopUp(userId, existing.id);
+    }
+
+    const [wallet, clearing] = await Promise.all([
+      this.ensureUserAccount(userId),
+      this.ensureSystemAccount('SYSTEM:YENGAPAY:XOF', 'PROVIDER_CLEARING'),
+    ]);
+    const reference = this.reference('YGP');
+    const operation = await this.prisma.walletOperation.create({
+      data: {
+        reference,
+        idempotencyKey: scopedKey,
+        initiatedById: userId,
+        debitAccountId: clearing.id,
+        creditAccountId: wallet.id,
+        type: 'TOP_UP',
+        status: 'PENDING',
+        provider: 'YENGAPAY',
+        amountXof: dto.amountXof,
+        label: 'Recharge ZAAMA via YengaPay',
+        metadata: { requestedAmountXof: dto.amountXof },
+      },
+    });
+
+    let providerAccepted = false;
+    try {
+      const intent = await this.yengaPay.createWalletTopUp({
+        amountXof: dto.amountXof,
+        reference,
+        customerNumber: phone,
+      });
+      providerAccepted = true;
+      if (
+        intent.currency !== 'XOF' ||
+        !Number.isInteger(intent.paymentAmount) ||
+        intent.paymentAmount <= 0 ||
+        intent.paymentAmount > dto.amountXof
+      ) {
+        throw new ServiceUnavailableException('Montant retourné par YengaPay incohérent');
+      }
+      const updated = await this.prisma.walletOperation.update({
+        where: { id: operation.id },
+        data: {
+          providerReference: intent.id,
+          amountXof: intent.paymentAmount,
+          metadata: {
+            requestedAmountXof: dto.amountXof,
+            paymentFeesXof: intent.paymentFees,
+          },
+        },
+      });
+      return this.publicTopUp(updated, intent.checkoutUrl);
+    } catch (error) {
+      // Une fois le PaymentIntent accepté par YengaPay, le laisser PENDING :
+      // son webhook signé peut encore arriver même si notre écriture locale a échoué.
+      if (!providerAccepted) {
+        await this.prisma.walletOperation.updateMany({
+          where: { id: operation.id, status: 'PENDING' },
+          data: { status: 'FAILED' },
+        });
+      }
+      throw error;
+    }
+  }
+
+  private async applyYengaPayUpdate(update: YengaPayPaymentUpdate) {
+    if (update.currency !== 'XOF') {
+      throw new BadRequestException('Devise YengaPay invalide');
+    }
+    const existing = await this.prisma.walletOperation.findFirst({
+      where: {
+        reference: update.reference,
+        provider: 'YENGAPAY',
+        type: 'TOP_UP',
+      },
+    });
+    if (!existing) throw new NotFoundException('Recharge YengaPay introuvable');
+    if (
+      (existing.providerReference &&
+        existing.providerReference !== update.paymentIntentId) ||
+      existing.amountXof !== update.paymentAmount
+    ) {
+      throw new BadRequestException('Paiement YengaPay incohérent');
+    }
+    if (existing.status !== 'PENDING') return existing;
+
+    if (update.paymentStatus === 'DONE') {
+      return this.prisma.$transaction(
+        async (tx) => {
+          const current = await tx.walletOperation.findUniqueOrThrow({
+            where: { id: existing.id },
+          });
+          if (current.status !== 'PENDING') return current;
+          return tx.walletOperation.update({
+            where: { id: current.id },
+            data: {
+              status: 'SUCCEEDED',
+              completedAt: new Date(),
+              providerReference: current.providerReference ?? update.paymentIntentId,
+              metadata: {
+                ...(this.metadataObject(current.metadata)),
+                paymentFeesXof: update.paymentFees ?? 0,
+                transactionId: update.transId,
+              },
+              entries: {
+                create: [
+                  {
+                    accountId: current.debitAccountId,
+                    direction: 'DEBIT',
+                    amountXof: current.amountXof,
+                  },
+                  {
+                    accountId: current.creditAccountId,
+                    direction: 'CREDIT',
+                    amountXof: current.amountXof,
+                  },
+                ],
+              },
+            },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    }
+    if (['FAILED', 'CANCELLED', 'EXPIRED'].includes(update.paymentStatus)) {
+      return this.prisma.walletOperation.update({
+        where: { id: existing.id },
+        data: { status: 'FAILED' },
+      });
+    }
+    return existing;
+  }
+
+  private publicTopUp(
+    operation: {
+      id: string;
+      reference: string;
+      status: string;
+      amountXof: number;
+      provider: string;
+      metadata: Prisma.JsonValue | null;
+      createdAt: Date;
+      completedAt: Date | null;
+    },
+    checkoutUrl?: string,
+  ) {
+    const metadata = this.metadataObject(operation.metadata);
+    return {
+      id: operation.id,
+      reference: operation.reference,
+      status: operation.status,
+      provider: operation.provider,
+      amountXof: operation.amountXof,
+      requestedAmountXof: metadata.requestedAmountXof ?? operation.amountXof,
+      feesXof: metadata.paymentFeesXof ?? 0,
+      checkoutUrl,
+      createdAt: operation.createdAt,
+      completedAt: operation.completedAt,
+    };
+  }
+
+  private metadataObject(value: Prisma.JsonValue | null): Record<string, Prisma.JsonValue> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, Prisma.JsonValue>)
+      : {};
+  }
+
+  private async userPhone(userId: string): Promise<string> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { phone: true },
+    });
+    if (!user) throw new NotFoundException('Utilisateur introuvable');
+    return user.phone;
   }
 
   private ensureUserAccount(userId: string) {

@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
 import { PrismaService } from '../database/prisma.service';
 import type { UploadRequestDto } from './uploads.dto';
+import type { DirectDownload, DirectUploadInput } from './storage.provider';
 import { StorageProvider } from './storage.provider';
 
 const allowedTypes = new Set([
@@ -95,5 +96,44 @@ export class UploadsService {
       data: { status: 'UPLOADED' },
     });
     return { ...updated, size: Number(updated.size) };
+  }
+
+  async createDownload(userId: string, uploadId: string) {
+    const upload = await this.prisma.upload.findFirst({
+      where: {
+        id: uploadId,
+        status: { in: ['UPLOADED', 'READY'] },
+        OR: [
+          { userId },
+          {
+            attachment: {
+              message: {
+                conversation: { members: { some: { userId } } },
+              },
+            },
+          },
+        ],
+      },
+      select: { objectKey: true, contentType: true, size: true },
+    });
+    if (!upload) throw new NotFoundException('Upload not found');
+    return {
+      url: await this.storage.createSignedDownload(upload.objectKey),
+      contentType: upload.contentType,
+      size: Number(upload.size),
+      expiresIn: 600,
+    };
+  }
+
+  createAuthorizedDownloadUrl(objectKey: string): Promise<string> {
+    return this.storage.createSignedDownload(objectKey);
+  }
+
+  acceptDirectUpload(input: DirectUploadInput): Promise<void> {
+    return this.storage.acceptDirectUpload(input);
+  }
+
+  openDirectDownload(token: string): Promise<DirectDownload> {
+    return this.storage.openDirectDownload(token);
   }
 }

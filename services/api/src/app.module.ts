@@ -19,6 +19,8 @@ import { AdminModule } from './admin/admin.module';
 import { CallsModule } from './calls/calls.module';
 import { MarketplaceModule } from './marketplace/marketplace.module';
 import { WalletModule } from './wallet/wallet.module';
+import { PushModule } from './push/push.module';
+import { EncryptionModule } from './encryption/encryption.module';
 
 @Module({
   imports: [
@@ -38,6 +40,8 @@ import { WalletModule } from './wallet/wallet.module';
     CallsModule,
     MarketplaceModule,
     WalletModule,
+    PushModule,
+    EncryptionModule,
     HealthModule,
   ],
   controllers: [AppController],

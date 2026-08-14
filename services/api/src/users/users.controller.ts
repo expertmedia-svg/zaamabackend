@@ -69,4 +69,12 @@ export class UsersController {
   search(@Req() request: AuthenticatedRequest, @Query() query: SearchUsersDto) {
     return this.usersService.searchByUsername(request.user.id, query.username);
   }
+
+  @Get(':id')
+  publicProfile(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.usersService.getPublicProfile(request.user.id, id);
+  }
 }

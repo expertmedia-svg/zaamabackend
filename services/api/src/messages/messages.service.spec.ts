@@ -2,6 +2,9 @@ import { MessageType } from '../generated/prisma/enums';
 import { MessagesService } from './messages.service';
 import type { PrismaService } from '../database/prisma.service';
 import type { RealtimePublisher } from '../realtime/realtime.publisher';
+import type { PushService } from '../push/push.service';
+import type { UploadsService } from '../uploads/uploads.service';
+import type { ConfigService } from '@nestjs/config';
 
 describe('MessagesService', () => {
   it('uses senderId/clientMessageId upsert so a retry returns the same message', async () => {
@@ -37,13 +40,23 @@ describe('MessagesService', () => {
         }),
       },
       blockedUser: { findFirst: jest.fn().mockResolvedValue(null) },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          profile: { displayName: 'Expéditeur' },
+        }),
+      },
       $transaction: jest.fn((work: (tx: typeof transaction) => unknown) => work(transaction)),
     } as unknown as PrismaService;
     const realtime = {
       toUser: jest.fn(),
       toConversation: jest.fn(),
     } as unknown as RealtimePublisher;
-    const service = new MessagesService(prisma, realtime);
+    const push = { sendNewMessage: jest.fn() } as unknown as PushService;
+    const uploads = {} as UploadsService;
+    const config = {
+      get: () => 'test',
+    } as unknown as ConfigService;
+    const service = new MessagesService(prisma, realtime, push, uploads, config);
     const dto = {
       conversationId: saved.conversationId,
       clientMessageId: saved.clientMessageId,
@@ -66,5 +79,6 @@ describe('MessagesService', () => {
         },
       }),
     );
+    expect(push.sendNewMessage).toHaveBeenCalledTimes(2);
   });
 });

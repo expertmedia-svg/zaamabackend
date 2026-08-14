@@ -99,6 +99,25 @@ export class UsersService {
     });
   }
 
+  async getPublicProfile(currentUserId: string, userId: string) {
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: { equals: userId, not: currentUserId },
+        status: 'ACTIVE',
+        blocksMade: { none: { blockedId: currentUserId } },
+        blocksReceived: { none: { blockerId: currentUserId } },
+      },
+      select: {
+        id: true,
+        profile: {
+          select: { username: true, displayName: true, avatarUrl: true, bio: true },
+        },
+      },
+    });
+    if (!user) throw new NotFoundException('Utilisateur introuvable');
+    return user;
+  }
+
   async block(userId: string, blockedId: string) {
     if (userId === blockedId) {
       throw new BadRequestException('Vous ne pouvez pas vous bloquer');

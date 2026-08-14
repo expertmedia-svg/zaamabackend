@@ -1,6 +1,8 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { connect } from 'node:net';
+import { access, constants } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { PrismaService } from '../database/prisma.service';
 
 @Injectable()
@@ -14,7 +16,7 @@ export class HealthService {
     const checks = {
       database: await this.checkDatabase(),
       redis: await this.checkOptionalTcpUrl(this.config.get<string>('REDIS_URL')),
-      storage: await this.checkOptionalTcpUrl(this.config.get<string>('S3_ENDPOINT')),
+      storage: await this.checkStorage(),
     };
     const ready = checks.database === 'up' &&
       Object.values(checks).every((value) => value !== 'down');
@@ -57,6 +59,22 @@ export class HealthService {
           reject(error);
         });
       });
+      return 'up';
+    } catch {
+      return 'down';
+    }
+  }
+
+  private async checkStorage(): Promise<'up' | 'down' | 'disabled'> {
+    if (this.config.get<string>('STORAGE_DRIVER') === 's3') {
+      return this.checkOptionalTcpUrl(this.config.get<string>('S3_ENDPOINT'));
+    }
+    const directory = resolve(
+      this.config.get<string>('LOCAL_STORAGE_DIR') ??
+        resolve(process.cwd(), 'var', 'uploads'),
+    );
+    try {
+      await access(directory, constants.R_OK | constants.W_OK);
       return 'up';
     } catch {
       return 'down';

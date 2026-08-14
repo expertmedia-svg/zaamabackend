@@ -1,15 +1,48 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { createHmac } from 'node:crypto';
 import type { CallStatus } from '../generated/prisma/enums';
 import { PrismaService } from '../database/prisma.service';
 import { RealtimePublisher } from '../realtime/realtime.publisher';
 import type { CreateCallDto } from './calls.dto';
+import { PushService } from '../push/push.service';
 
 @Injectable()
 export class CallsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimePublisher,
+    private readonly push: PushService,
+    private readonly config: ConfigService,
   ) {}
+
+  getIceServers(userId: string) {
+    const iceServers: Array<{
+      urls: string | string[];
+      username?: string;
+      credential?: string;
+    }> = [];
+    const stunUrls = this.splitUrls(this.config.get<string>('STUN_URL'));
+    if (stunUrls.length > 0) iceServers.push({ urls: stunUrls });
+
+    const turnUrls = this.splitUrls(this.config.get<string>('TURN_URL'));
+    const sharedSecret = this.config.get<string>('TURN_SHARED_SECRET')?.trim();
+    if (turnUrls.length > 0 && sharedSecret) {
+      const expiresAt = Math.floor(Date.now() / 1000) + 60 * 60;
+      const username = `${expiresAt}:${userId}`;
+      const credential = createHmac('sha1', sharedSecret)
+        .update(username)
+        .digest('base64');
+      iceServers.push({ urls: turnUrls, username, credential });
+    }
+
+    return { iceServers, ttlSeconds: 3600 };
+  }
 
   list(userId: string) {
     return this.prisma.call.findMany({
@@ -70,9 +103,26 @@ export class CallsService {
       include: { participants: true },
     });
 
+    const starter = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { profile: { select: { displayName: true } } },
+    });
+    const callerName = starter?.profile?.displayName ?? 'ZAAMA';
     for (const participantId of participantIds.filter((id) => id !== userId)) {
-      this.realtime.toUser(participantId, 'call.incoming', call);
+      this.realtime.toUser(participantId, 'call.incoming', {
+        ...call,
+        callerName,
+      });
     }
+    void this.push.sendIncomingCall(
+      participantIds.filter((id) => id !== userId),
+      {
+        callerName,
+        callId: call.id,
+        conversationId: dto.conversationId,
+        video: dto.type === 'VIDEO',
+      },
+    );
     return call;
   }
 
@@ -85,6 +135,22 @@ export class CallsService {
       include: { participants: true },
     });
     if (!call) throw new NotFoundException('Call not found');
+
+    const allowed: Record<CallStatus, CallStatus[]> = {
+      RINGING: ['CONNECTING', 'CONNECTED', 'ENDED', 'MISSED', 'DECLINED', 'FAILED'],
+      CONNECTING: ['CONNECTED', 'ENDED', 'DECLINED', 'FAILED'],
+      CONNECTED: ['ENDED', 'FAILED'],
+      ENDED: [],
+      MISSED: [],
+      DECLINED: [],
+      FAILED: [],
+    };
+    if (call.status === status) return call;
+    if (!allowed[call.status].includes(status)) {
+      throw new BadRequestException(
+        `Invalid call transition from ${call.status} to ${status}`,
+      );
+    }
 
     const now = new Date();
     const terminal = ['ENDED', 'MISSED', 'DECLINED', 'FAILED'].includes(status);
@@ -105,7 +171,8 @@ export class CallsService {
         where: { id: callId },
         data: {
           status,
-          connectedAt: status === 'CONNECTED' ? now : undefined,
+          connectedAt:
+            status === 'CONNECTED' ? (call.connectedAt ?? now) : undefined,
           endedAt: terminal ? now : undefined,
         },
         include: { participants: true },
@@ -116,5 +183,12 @@ export class CallsService {
       this.realtime.toUser(participant.userId, 'call.updated', updated);
     }
     return updated;
+  }
+
+  private splitUrls(value?: string): string[] {
+    return (value ?? '')
+      .split(',')
+      .map((url) => url.trim())
+      .filter(Boolean);
   }
 }
