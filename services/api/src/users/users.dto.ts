@@ -16,10 +16,17 @@ export class UpdateMeDto {
   @MaxLength(160)
   bio?: string;
 
+  /// Id d'un upload déjà terminé (`POST /uploads` puis `/uploads/:id/complete`)
+  /// appartenant à l'utilisateur courant. Le serveur vérifie cette
+  /// propriété avant de l'utiliser comme photo de profil — jamais une URL
+  /// ou une clé d'objet fournie telle quelle par le client.
   @IsOptional()
-  @IsString()
-  @MaxLength(1024)
-  avatar?: string;
+  @IsUUID('4')
+  avatarUploadId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  coverUploadId?: string;
 
   @IsOptional()
   @IsString()

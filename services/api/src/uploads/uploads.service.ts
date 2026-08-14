@@ -129,6 +129,35 @@ export class UploadsService {
     return this.storage.createSignedDownload(objectKey);
   }
 
+  /// Durée de validité des liens de photo de profil/couverture/logo — bien
+  /// plus longue que le téléchargement immédiat d'une pièce jointe, pour
+  /// éviter qu'un avatar déjà affiché se casse en quelques minutes.
+  private static readonly ASSET_URL_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+  /// Résout une valeur stockée en `avatarUrl`/`coverUrl`/`logoUrl` vers un
+  /// lien effectivement utilisable par le client.
+  ///
+  /// Accepte les deux formes que ce champ peut prendre : une clé d'objet de
+  /// stockage interne (cas normal, signée à la volée avec une longue durée
+  /// de vie), ou une URL déjà complète (compatibilité avec d'éventuelles
+  /// valeurs historiques). N'échoue jamais bruyamment : une clé introuvable
+  /// ou une erreur de signature renvoie `null` plutôt que de casser toute
+  /// la réponse HTTP à cause d'un seul avatar.
+  async resolveAssetUrl(
+    stored: string | null | undefined,
+  ): Promise<string | null> {
+    if (!stored) return null;
+    if (/^https?:\/\//i.test(stored)) return stored;
+    try {
+      return await this.storage.createSignedDownload(
+        stored,
+        UploadsService.ASSET_URL_TTL_SECONDS,
+      );
+    } catch {
+      return null;
+    }
+  }
+
   acceptDirectUpload(input: DirectUploadInput): Promise<void> {
     return this.storage.acceptDirectUpload(input);
   }

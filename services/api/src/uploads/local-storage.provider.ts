@@ -77,7 +77,10 @@ export class LocalStorageProvider extends StorageProvider {
     );
   }
 
-  createSignedDownload(objectKey: string): Promise<string> {
+  createSignedDownload(
+    objectKey: string,
+    expiresInSeconds = 10 * 60,
+  ): Promise<string> {
     return this.metadata(objectKey).then(
       (metadata) =>
         `${this.apiUrl}/uploads/direct/${this.sign({
@@ -85,7 +88,7 @@ export class LocalStorageProvider extends StorageProvider {
           objectKey,
           contentType: metadata.contentType,
           size: metadata.size,
-          expiresAt: Date.now() + 10 * 60 * 1000,
+          expiresAt: Date.now() + expiresInSeconds * 1000,
         })}`,
     );
   }

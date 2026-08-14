@@ -43,11 +43,16 @@ export class S3StorageProvider extends StorageProvider {
     return getSignedUrl(this.client, command, { expiresIn: 15 * 60 });
   }
 
-  createSignedDownload(objectKey: string): Promise<string> {
+  createSignedDownload(
+    objectKey: string,
+    expiresInSeconds = 10 * 60,
+  ): Promise<string> {
     return getSignedUrl(
       this.client,
       new GetObjectCommand({ Bucket: this.bucket, Key: objectKey }),
-      { expiresIn: 10 * 60 },
+      // SigV4 plafonne les liens présignés à 7 jours ; on borne pour éviter
+      // une erreur du SDK si un appelant demande plus long.
+      { expiresIn: Math.min(expiresInSeconds, 7 * 24 * 60 * 60) },
     );
   }
 

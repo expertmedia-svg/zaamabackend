@@ -19,6 +19,7 @@ const publicProfileSelect = {
       username: true,
       displayName: true,
       avatarUrl: true,
+      coverUrl: true,
       bio: true,
       language: true,
       theme: true,
@@ -42,6 +43,10 @@ export class UsersService {
   }
 
   async updateMe(userId: string, data: UpdateMeDto) {
+    const [avatarUrl, coverUrl] = await Promise.all([
+      this.resolveOwnedUploadKey(userId, data.avatarUploadId),
+      this.resolveOwnedUploadKey(userId, data.coverUploadId),
+    ]);
     try {
       return await this.prisma.user.update({
         where: { id: userId },
@@ -52,7 +57,8 @@ export class UsersService {
                 username: data.username ?? `saaga_${userId.slice(0, 8)}`,
                 displayName: data.displayName ?? 'Membre Saaga',
                 bio: data.bio,
-                avatarUrl: data.avatar,
+                avatarUrl,
+                coverUrl,
                 language: data.language,
                 theme: data.theme,
                 readReceipts: data.readReceipts,
@@ -61,7 +67,8 @@ export class UsersService {
                 username: data.username,
                 displayName: data.displayName,
                 bio: data.bio,
-                avatarUrl: data.avatar,
+                avatarUrl,
+                coverUrl,
                 language: data.language,
                 theme: data.theme,
                 readReceipts: data.readReceipts,
@@ -77,6 +84,25 @@ export class UsersService {
       }
       throw error;
     }
+  }
+
+  /// Vérifie qu'un upload appartient bien à l'utilisateur et est terminé
+  /// avant d'en accepter la clé d'objet comme photo de profil/couverture.
+  /// Ne fait jamais confiance à une URL ou une clé fournie directement par
+  /// le client — seul un upload authentifié et déjà réalisé est accepté.
+  private async resolveOwnedUploadKey(
+    userId: string,
+    uploadId: string | undefined,
+  ): Promise<string | undefined> {
+    if (!uploadId) return undefined;
+    const upload = await this.prisma.upload.findFirst({
+      where: { id: uploadId, userId, status: 'UPLOADED' },
+      select: { objectKey: true },
+    });
+    if (!upload) {
+      throw new BadRequestException('Upload introuvable ou incomplet');
+    }
+    return upload.objectKey;
   }
 
   searchByUsername(currentUserId: string, query: string) {
@@ -110,7 +136,13 @@ export class UsersService {
       select: {
         id: true,
         profile: {
-          select: { username: true, displayName: true, avatarUrl: true, bio: true },
+          select: {
+            username: true,
+            displayName: true,
+            avatarUrl: true,
+            coverUrl: true,
+            bio: true,
+          },
         },
       },
     });

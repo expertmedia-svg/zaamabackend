@@ -218,6 +218,7 @@ model UserProfile {
   username               String   @unique @db.VarChar(32)
   displayName            String   @db.VarChar(80)
   avatarUrl              String?  @db.VarChar(1024)
+  coverUrl               String?  @db.VarChar(1024)
   bio                    String   @default("") @db.VarChar(160)
   lastSeenVisibility     String   @default("contacts") @db.VarChar(32)
   profilePhotoVisibility String   @default("contacts") @db.VarChar(32)

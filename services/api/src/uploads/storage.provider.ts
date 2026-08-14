@@ -25,7 +25,14 @@ export interface DirectDownload {
 
 export abstract class StorageProvider {
   abstract createSignedUpload(input: CreateSignedUploadInput): Promise<string>;
-  abstract createSignedDownload(objectKey: string): Promise<string>;
+  /// [expiresInSeconds] : durée de validité du lien signé. Par défaut 10
+  /// minutes (téléchargement immédiat d'une pièce jointe de message) ; les
+  /// photos de profil/couverture demandent une durée bien plus longue,
+  /// voir `UploadsService.resolveAssetUrl`.
+  abstract createSignedDownload(
+    objectKey: string,
+    expiresInSeconds?: number,
+  ): Promise<string>;
   abstract head(objectKey: string): Promise<StoredObject>;
   abstract remove(objectKey: string): Promise<void>;
 
