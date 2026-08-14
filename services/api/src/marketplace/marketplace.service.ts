@@ -13,7 +13,9 @@ import type {
   CreateOrderDto,
   CreateProductDto,
   MarketplaceQueryDto,
+  UpdateBusinessDto,
   UpdateOrderStatusDto,
+  UpdateProductDto,
 } from './marketplace.dto';
 
 @Injectable()
@@ -42,6 +44,44 @@ export class MarketplaceService {
       orderBy: [{ status: 'desc' }, { rating: 'desc' }, { createdAt: 'desc' }],
       take: 60,
     });
+  }
+
+  async myBusiness(userId: string) {
+    const business = await this.prisma.businessProfile.findUnique({
+      where: { ownerId: userId },
+      include: {
+        owner: {
+          select: { profile: { select: { displayName: true, avatarUrl: true } } },
+        },
+        products: { orderBy: { createdAt: 'desc' } },
+        _count: { select: { products: true, orders: true } },
+      },
+    });
+    return { business };
+  }
+
+  async business(userId: string, businessId: string) {
+    const business = await this.prisma.businessProfile.findFirst({
+      where: {
+        id: businessId,
+        OR: [
+          { ownerId: userId },
+          { status: { in: ['VERIFIED', 'PENDING'] } },
+        ],
+      },
+      include: {
+        owner: {
+          select: { profile: { select: { displayName: true, avatarUrl: true } } },
+        },
+        products: {
+          where: { OR: [{ status: 'ACTIVE' }, { business: { ownerId: userId } }] },
+          orderBy: [{ featured: 'desc' }, { createdAt: 'desc' }],
+        },
+        _count: { select: { products: true, orders: true } },
+      },
+    });
+    if (!business) throw new NotFoundException('Boutique introuvable');
+    return business;
   }
 
   products(query: MarketplaceQueryDto) {
@@ -80,6 +120,18 @@ export class MarketplaceService {
     }
   }
 
+  async updateBusiness(userId: string, dto: UpdateBusinessDto) {
+    const business = await this.prisma.businessProfile.findUnique({
+      where: { ownerId: userId },
+      select: { id: true },
+    });
+    if (!business) throw new NotFoundException('Boutique introuvable');
+    return this.prisma.businessProfile.update({
+      where: { id: business.id },
+      data: dto,
+    });
+  }
+
   async createProduct(userId: string, dto: CreateProductDto) {
     const business = await this.prisma.businessProfile.findUnique({ where: { ownerId: userId } });
     if (!business || business.status === 'SUSPENDED' || business.status === 'REJECTED') {
@@ -90,6 +142,23 @@ export class MarketplaceService {
         businessId: business.id,
         ...dto,
         status: dto.stock > 0 ? 'ACTIVE' : 'OUT_OF_STOCK',
+      },
+      include: { business: { select: { id: true, name: true } } },
+    });
+  }
+
+  async updateProduct(userId: string, productId: string, dto: UpdateProductDto) {
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, business: { ownerId: userId } },
+      select: { id: true, stock: true },
+    });
+    if (!product) throw new NotFoundException('Produit introuvable');
+    const finalStock = dto.stock ?? product.stock;
+    return this.prisma.product.update({
+      where: { id: productId },
+      data: {
+        ...dto,
+        status: finalStock > 0 ? 'ACTIVE' : 'OUT_OF_STOCK',
       },
       include: { business: { select: { id: true, name: true } } },
     });

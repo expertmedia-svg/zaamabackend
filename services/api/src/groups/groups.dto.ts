@@ -80,6 +80,22 @@ export class AddGroupMemberDto {
   userId!: string;
 }
 
+export enum GroupRoleNameDto {
+  ADMIN = 'ADMIN',
+  MEMBER = 'MEMBER',
+}
+
+export class UpdateGroupMemberRoleDto {
+  @IsEnum(GroupRoleNameDto)
+  role!: GroupRoleNameDto;
+}
+
+export class JoinGroupDto {
+  @IsString()
+  @MaxLength(64)
+  inviteCode!: string;
+}
+
 export class CreateGroupTopicDto {
   @IsString()
   @MaxLength(80)

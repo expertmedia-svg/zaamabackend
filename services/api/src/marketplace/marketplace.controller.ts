@@ -6,7 +6,9 @@ import {
   CreateOrderDto,
   CreateProductDto,
   MarketplaceQueryDto,
+  UpdateBusinessDto,
   UpdateOrderStatusDto,
+  UpdateProductDto,
 } from './marketplace.dto';
 import { MarketplaceService } from './marketplace.service';
 
@@ -20,6 +22,19 @@ export class MarketplaceController {
     return this.marketplace.businesses(query);
   }
 
+  @Get('businesses/me')
+  myBusiness(@Req() request: AuthenticatedRequest) {
+    return this.marketplace.myBusiness(request.user.id);
+  }
+
+  @Get('businesses/:id')
+  business(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.marketplace.business(request.user.id, id);
+  }
+
   @Get('products')
   products(@Query() query: MarketplaceQueryDto) {
     return this.marketplace.products(query);
@@ -30,9 +45,26 @@ export class MarketplaceController {
     return this.marketplace.createBusiness(request.user.id, dto);
   }
 
+  @Patch('businesses/me')
+  updateBusiness(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: UpdateBusinessDto,
+  ) {
+    return this.marketplace.updateBusiness(request.user.id, dto);
+  }
+
   @Post('products')
   createProduct(@Req() request: AuthenticatedRequest, @Body() dto: CreateProductDto) {
     return this.marketplace.createProduct(request.user.id, dto);
+  }
+
+  @Patch('products/:id')
+  updateProduct(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: UpdateProductDto,
+  ) {
+    return this.marketplace.updateProduct(request.user.id, id, dto);
   }
 
   @Get('orders')

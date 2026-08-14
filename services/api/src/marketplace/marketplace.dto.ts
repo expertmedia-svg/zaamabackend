@@ -53,6 +53,28 @@ export class CreateBusinessDto {
   city!: string;
 }
 
+export class UpdateBusinessDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(600)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  category?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  city?: string;
+}
+
 export class CreateProductDto {
   @IsString()
   @MaxLength(140)
@@ -75,6 +97,40 @@ export class CreateProductDto {
   @Min(0)
   @Max(1_000_000)
   stock!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1024)
+  imageUrl?: string;
+}
+
+export class UpdateProductDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(140)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1200)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  category?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(50)
+  @Max(50_000_000)
+  priceXof?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1_000_000)
+  stock?: number;
 
   @IsOptional()
   @IsString()

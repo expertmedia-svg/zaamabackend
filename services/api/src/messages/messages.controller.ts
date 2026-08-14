@@ -20,12 +20,25 @@ export class MessagesController {
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Body() dto: UpdateMessageDto,
   ) {
-    return this.messagesService.update(request.user.id, id, dto.encryptedPayload);
+    return this.messagesService.update(
+      request.user.id,
+      id,
+      dto.encryptedPayload,
+      request.user.deviceId,
+    );
   }
 
   @Delete(':id')
   remove(@Req() request: AuthenticatedRequest, @Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
     return this.messagesService.removeForEveryone(request.user.id, id);
+  }
+
+  @Post(':id/hide')
+  hideForCurrentUser(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.messagesService.hideForUser(request.user.id, id);
   }
 
   @Post(':id/reactions')

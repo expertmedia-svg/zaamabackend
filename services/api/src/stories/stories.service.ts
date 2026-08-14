@@ -15,6 +15,12 @@ export class StoriesService {
     return this.prisma.story.findMany({
       where: { userId, deletedAt: null, expiresAt: { gt: new Date() } },
       include: {
+        user: {
+          select: {
+            id: true,
+            profile: { select: { username: true, displayName: true, avatarUrl: true } },
+          },
+        },
         items: { orderBy: { position: 'asc' } },
         views: {
           include: {
@@ -79,6 +85,7 @@ export class StoriesService {
           },
         },
         items: { orderBy: { position: 'asc' } },
+        views: { where: { viewerId: userId }, select: { viewedAt: true } },
         _count: { select: { views: true } },
       },
       orderBy: { createdAt: 'desc' },

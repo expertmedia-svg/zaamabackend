@@ -6,7 +6,11 @@ import {
 } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
-import type { CreateGroupDto, CreateGroupTopicDto, UpdateGroupDto } from './groups.dto';
+import type {
+  CreateGroupDto,
+  CreateGroupTopicDto,
+  UpdateGroupDto,
+} from './groups.dto';
 
 @Injectable()
 export class GroupsService {
@@ -82,6 +86,15 @@ export class GroupsService {
     return this.getGroup(groupId);
   }
 
+  async details(userId: string, groupId: string) {
+    const member = await this.prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId, userId } },
+      select: { id: true },
+    });
+    if (!member) throw new ForbiddenException('Group access denied');
+    return this.getGroup(groupId);
+  }
+
   async update(userId: string, groupId: string, dto: UpdateGroupDto) {
     await this.assertManager(userId, groupId);
     await this.prisma.group.update({
@@ -137,6 +150,102 @@ export class GroupsService {
         where: {
           conversationId_userId: {
             conversationId: manager.group.conversationId,
+            userId,
+          },
+        },
+      }),
+    ]);
+    return { success: true };
+  }
+
+  async updateMemberRole(
+    actorId: string,
+    groupId: string,
+    userId: string,
+    roleName: 'ADMIN' | 'MEMBER',
+  ) {
+    const actor = await this.prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId, userId: actorId } },
+      include: { role: true, group: true },
+    });
+    if (!actor || actor.role.name !== 'OWNER') {
+      throw new ForbiddenException('Only the group owner can manage administrators');
+    }
+    if (actor.group.ownerId === userId) {
+      throw new ForbiddenException('The owner role cannot be changed');
+    }
+    const target = await this.prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId, userId } },
+    });
+    if (!target) throw new NotFoundException('Group member not found');
+    const role = await this.prisma.groupRole.findUniqueOrThrow({
+      where: { groupId_name: { groupId, name: roleName } },
+    });
+    await this.prisma.groupMember.update({
+      where: { id: target.id },
+      data: { roleId: role.id },
+    });
+    return this.getGroup(groupId);
+  }
+
+  async rotateInvite(actorId: string, groupId: string) {
+    await this.assertManager(actorId, groupId);
+    return this.prisma.group.update({
+      where: { id: groupId },
+      data: { inviteCode: randomBytes(24).toString('base64url') },
+      select: { id: true, inviteCode: true },
+    });
+  }
+
+  async join(userId: string, inviteCode: string) {
+    const group = await this.prisma.group.findUnique({
+      where: { inviteCode },
+      select: { id: true, conversationId: true },
+    });
+    if (!group) throw new NotFoundException('Invitation invalide ou révoquée');
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    if (!user) throw new ForbiddenException('Compte indisponible');
+    const memberRole = await this.prisma.groupRole.findUniqueOrThrow({
+      where: { groupId_name: { groupId: group.id, name: 'MEMBER' } },
+    });
+    await this.prisma.$transaction([
+      this.prisma.conversationMember.upsert({
+        where: {
+          conversationId_userId: {
+            conversationId: group.conversationId,
+            userId,
+          },
+        },
+        update: {},
+        create: { conversationId: group.conversationId, userId },
+      }),
+      this.prisma.groupMember.upsert({
+        where: { groupId_userId: { groupId: group.id, userId } },
+        update: {},
+        create: { groupId: group.id, userId, roleId: memberRole.id },
+      }),
+    ]);
+    return this.getGroup(group.id);
+  }
+
+  async leave(userId: string, groupId: string) {
+    const membership = await this.prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId, userId } },
+      include: { group: { select: { ownerId: true, conversationId: true } } },
+    });
+    if (!membership) throw new NotFoundException('Group membership not found');
+    if (membership.group.ownerId === userId) {
+      throw new ForbiddenException('Transférez la propriété avant de quitter le groupe');
+    }
+    await this.prisma.$transaction([
+      this.prisma.groupMember.delete({ where: { id: membership.id } }),
+      this.prisma.conversationMember.delete({
+        where: {
+          conversationId_userId: {
+            conversationId: membership.group.conversationId,
             userId,
           },
         },

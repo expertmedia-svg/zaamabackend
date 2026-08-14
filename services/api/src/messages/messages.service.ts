@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -26,7 +28,11 @@ export class MessagesService {
     await this.assertMember(userId, conversationId);
     const pageSize = 40;
     const messages = await this.prisma.message.findMany({
-      where: { conversationId },
+      where: {
+        conversationId,
+        NOT: { hiddenForUserIds: { has: userId } },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
       include: {
         receipts: { select: { userId: true, state: true, updatedAt: true } },
         reactions: { select: { userId: true, emoji: true, createdAt: true } },
@@ -91,12 +97,48 @@ export class MessagesService {
       },
       include: {
         conversation: {
-          include: { members: { select: { userId: true } } },
+          include: {
+            members: { select: { userId: true } },
+            group: true,
+          },
         },
       },
     });
     if (!member) throw new ForbiddenException('Conversation access denied');
     await this.assertNotBlocked(userId, member.conversation.members.map((entry) => entry.userId));
+
+    if (member.conversation.group) {
+      const groupMembership = await this.prisma.groupMember.findUnique({
+        where: {
+          groupId_userId: {
+            groupId: member.conversation.group.id,
+            userId,
+          },
+        },
+        include: { role: { select: { name: true } } },
+      });
+      if (!groupMembership) throw new ForbiddenException('Group access denied');
+      const isManager = ['OWNER', 'ADMIN'].includes(groupMembership.role.name);
+      if (!member.conversation.group.membersCanPost && !isManager) {
+        throw new ForbiddenException('Seuls les administrateurs peuvent publier');
+      }
+      if (member.conversation.group.slowModeSeconds > 0 && !isManager) {
+        const latest = await this.prisma.message.findFirst({
+          where: { conversationId: dto.conversationId, senderId: userId },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        });
+        const retryAt = latest
+          ? latest.createdAt.getTime() + member.conversation.group.slowModeSeconds * 1000
+          : 0;
+        if (retryAt > Date.now()) {
+          throw new HttpException(
+            `Mode lent actif. Réessayez dans ${Math.ceil((retryAt - Date.now()) / 1000)} s`,
+            HttpStatus.TOO_MANY_REQUESTS,
+          );
+        }
+      }
+    }
 
     if (envelope) {
       const expectedDeviceIds = await this.prisma.encryptionDevice.findMany({
@@ -164,6 +206,10 @@ export class MessagesService {
           type: dto.type,
           encryptedPayload: dto.encryptedPayload,
           replyToId: dto.replyToId,
+          expiresAt:
+            member.conversation.disappearingSeconds > 0
+              ? new Date(Date.now() + member.conversation.disappearingSeconds * 1000)
+              : null,
           attachments:
             dto.uploadIds?.length
               ? {
@@ -253,13 +299,30 @@ export class MessagesService {
     return envelope;
   }
 
-  async update(userId: string, id: string, encryptedPayload: string) {
+  async update(
+    userId: string,
+    id: string,
+    encryptedPayload: string,
+    senderDeviceId?: string,
+  ) {
     const existing = await this.prisma.message.findFirst({
       where: { id, senderId: userId, deletedForEveryoneAt: null },
     });
     if (!existing) throw new NotFoundException('Message not found');
     if (Date.now() - existing.createdAt.getTime() > 15 * 60 * 1000) {
       throw new ForbiddenException('Message edit window has expired');
+    }
+    if (existing.type !== 'TEXT') {
+      throw new ForbiddenException('Only text messages can be edited');
+    }
+    const envelope = this.assertProductionEncryption({
+      conversationId: existing.conversationId,
+      clientMessageId: existing.clientMessageId,
+      type: existing.type,
+      encryptedPayload,
+    });
+    if (envelope && envelope.senderDeviceId !== senderDeviceId) {
+      throw new BadRequestException('Encrypted envelope sender is invalid');
     }
 
     const message = await this.prisma.message.update({
@@ -278,9 +341,12 @@ export class MessagesService {
   async removeForEveryone(userId: string, id: string) {
     const existing = await this.prisma.message.findFirst({
       where: { id, senderId: userId },
-      select: { id: true, conversationId: true },
+      select: { id: true, conversationId: true, createdAt: true },
     });
     if (!existing) throw new NotFoundException('Message not found');
+    if (Date.now() - existing.createdAt.getTime() > 48 * 60 * 60 * 1000) {
+      throw new ForbiddenException('Message deletion window has expired');
+    }
     const message = await this.prisma.message.update({
       where: { id },
       data: { encryptedPayload: '', deletedForEveryoneAt: new Date() },
@@ -290,6 +356,22 @@ export class MessagesService {
       conversationId: existing.conversationId,
       deletedAt: message.deletedForEveryoneAt,
     });
+    return { success: true };
+  }
+
+  async hideForUser(userId: string, id: string) {
+    const message = await this.prisma.message.findUnique({
+      where: { id },
+      select: { conversationId: true, hiddenForUserIds: true },
+    });
+    if (!message) throw new NotFoundException('Message not found');
+    await this.assertMember(userId, message.conversationId);
+    if (!message.hiddenForUserIds.includes(userId)) {
+      await this.prisma.message.update({
+        where: { id },
+        data: { hiddenForUserIds: { push: userId } },
+      });
+    }
     return { success: true };
   }
 

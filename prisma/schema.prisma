@@ -313,16 +313,17 @@ model ContactMatch {
 }
 
 model Conversation {
-  id            String               @id @default(uuid()) @db.Uuid
-  type          ConversationType
-  directKey     String?              @unique @db.VarChar(80)
-  lastMessageAt DateTime?            @db.Timestamptz(3)
-  createdAt     DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime             @updatedAt @db.Timestamptz(3)
-  members       ConversationMember[]
-  messages      Message[]
-  group         Group?
-  calls         Call[]
+  id                  String               @id @default(uuid()) @db.Uuid
+  type                ConversationType
+  directKey           String?              @unique @db.VarChar(80)
+  disappearingSeconds Int                  @default(0)
+  lastMessageAt       DateTime?            @db.Timestamptz(3)
+  createdAt           DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime             @updatedAt @db.Timestamptz(3)
+  members             ConversationMember[]
+  messages            Message[]
+  group               Group?
+  calls               Call[]
 
   @@index([lastMessageAt])
   @@map("conversations")
@@ -356,6 +357,7 @@ model Message {
   expiresAt            DateTime?         @db.Timestamptz(3)
   editedAt             DateTime?         @db.Timestamptz(3)
   deletedForEveryoneAt DateTime?         @db.Timestamptz(3)
+  hiddenForUserIds     String[]          @default([]) @db.Uuid
   createdAt            DateTime          @default(now()) @db.Timestamptz(3)
   conversation         Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender               User              @relation("MessageSender", fields: [senderId], references: [id], onDelete: Restrict)

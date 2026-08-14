@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { AuthenticatedRequest } from '../common/auth-user';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { MessagePageQueryDto } from '../messages/messages.dto';
 import { MessagesService } from '../messages/messages.service';
-import { CreateDirectConversationDto } from './conversations.dto';
+import { CreateDirectConversationDto, UpdateDisappearingMessagesDto } from './conversations.dto';
 import { ConversationsService } from './conversations.service';
 
 @UseGuards(JwtAuthGuard)
@@ -25,6 +25,27 @@ export class ConversationsController {
     @Body() dto: CreateDirectConversationDto,
   ) {
     return this.conversationsService.createDirect(request.user.id, dto.participantId);
+  }
+
+  @Get(':id')
+  details(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.conversationsService.details(request.user.id, id);
+  }
+
+  @Patch(':id/disappearing-messages')
+  updateDisappearingMessages(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: UpdateDisappearingMessagesDto,
+  ) {
+    return this.conversationsService.updateDisappearingMessages(
+      request.user.id,
+      id,
+      dto.seconds,
+    );
   }
 
   @Get(':id/messages')
