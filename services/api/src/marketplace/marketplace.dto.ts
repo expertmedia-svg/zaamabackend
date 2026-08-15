@@ -109,10 +109,14 @@ export class CreateProductDto {
   @Max(1_000_000)
   stock!: number;
 
+  /// Ids d'uploads déjà terminés, appartenant au vendeur — jamais des URL
+  /// fournies directement par le client. Voir
+  /// `UploadsService.resolveOwnedUploadKey`.
   @IsOptional()
-  @IsString()
-  @MaxLength(1024)
-  imageUrl?: string;
+  @IsArray()
+  @ArrayMaxSize(8)
+  @IsUUID('4', { each: true })
+  imageUploadIds?: string[];
 }
 
 export class UpdateProductDto {
@@ -144,9 +148,10 @@ export class UpdateProductDto {
   stock?: number;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(1024)
-  imageUrl?: string;
+  @IsArray()
+  @ArrayMaxSize(8)
+  @IsUUID('4', { each: true })
+  imageUploadIds?: string[];
 }
 
 export class OrderLineDto {

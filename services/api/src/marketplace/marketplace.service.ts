@@ -150,10 +150,13 @@ export class MarketplaceService {
     if (!business || business.status === 'SUSPENDED' || business.status === 'REJECTED') {
       throw new ForbiddenException('Boutique active requise');
     }
+    const { imageUploadIds, ...rest } = dto;
+    const images = await this.resolveProductImages(userId, imageUploadIds);
     return this.prisma.product.create({
       data: {
         businessId: business.id,
-        ...dto,
+        ...rest,
+        ...(images !== undefined ? { images } : {}),
         status: dto.stock > 0 ? 'ACTIVE' : 'OUT_OF_STOCK',
       },
       include: { business: { select: { id: true, name: true } } },
@@ -163,18 +166,42 @@ export class MarketplaceService {
   async updateProduct(userId: string, productId: string, dto: UpdateProductDto) {
     const product = await this.prisma.product.findFirst({
       where: { id: productId, business: { ownerId: userId } },
-      select: { id: true, stock: true },
+      select: { id: true, stock: true, images: true },
     });
     if (!product) throw new NotFoundException('Produit introuvable');
     const finalStock = dto.stock ?? product.stock;
+    const { imageUploadIds, ...rest } = dto;
+    const newImages = await this.resolveProductImages(userId, imageUploadIds);
+    // Une mise à jour ajoute des photos aux existantes plutôt que de les
+    // remplacer : le client ne connaît les photos déjà en place que par
+    // leur lien signé, pas par un id d'upload qu'il pourrait renvoyer.
+    const images =
+      newImages === undefined
+        ? undefined
+        : [...product.images, ...newImages].slice(0, 8);
     return this.prisma.product.update({
       where: { id: productId },
       data: {
-        ...dto,
+        ...rest,
+        ...(images !== undefined ? { images } : {}),
         status: finalStock > 0 ? 'ACTIVE' : 'OUT_OF_STOCK',
       },
       include: { business: { select: { id: true, name: true } } },
     });
+  }
+
+  /// Vérifie chaque upload (propriété + statut terminé) avant de les
+  /// accepter comme photos du produit. `undefined` si le champ n'a pas été
+  /// fourni du tout, pour ne pas écraser les photos existantes lors d'une
+  /// mise à jour partielle.
+  private async resolveProductImages(
+    userId: string,
+    imageUploadIds: string[] | undefined,
+  ): Promise<string[] | undefined> {
+    if (imageUploadIds === undefined) return undefined;
+    return Promise.all(
+      imageUploadIds.map((id) => this.uploads.resolveOwnedUploadKey(userId, id)),
+    ) as Promise<string[]>;
   }
 
   orders(userId: string) {

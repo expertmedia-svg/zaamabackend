@@ -747,6 +747,7 @@ model Product {
   priceXof    Int
   stock       Int                    @default(0)
   imageUrl    String?                @db.VarChar(1024)
+  images      String[]               @default([])
   status      ProductStatus          @default(DRAFT)
   featured    Boolean                @default(false)
   createdAt   DateTime               @default(now()) @db.Timestamptz(3)
