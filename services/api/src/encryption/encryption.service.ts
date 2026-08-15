@@ -51,7 +51,7 @@ export class EncryptionService {
     if (!membership) throw new ForbiddenException('Conversation access denied');
 
     const now = new Date();
-    const devices = await this.prisma.device.findMany({
+    const activeDevices = await this.prisma.device.findMany({
       where: {
         user: {
           conversationMembers: { some: { conversationId } },
@@ -64,32 +64,45 @@ export class EncryptionService {
       select: {
         id: true,
         userId: true,
+        lastActiveAt: true,
         encryptionDevice: {
           select: { identityPublicKey: true, updatedAt: true },
         },
       },
+      orderBy: { lastActiveAt: 'desc' },
       take: 256,
     });
-    const keyedUserIds = new Set(
-      devices
-        .filter((device) => device.encryptionDevice)
-        .map((device) => device.userId),
+    // Un seul appareil retenu par membre : le plus récemment actif. Sans
+    // ça, un vieil appareil dont la session n'a jamais été explicitement
+    // fermée (réinstallation sans déconnexion, par exemple) mais qui
+    // possède encore une clé enregistrée suffirait à considérer le membre
+    // « prêt », alors que l'appareil qu'il utilise réellement aujourd'hui
+    // n'a peut-être pas fini de s'enregistrer — le message serait alors
+    // chiffré pour un appareil que personne ne peut plus lire.
+    const latestDeviceByUser = new Map<string, (typeof activeDevices)[number]>();
+    for (const device of activeDevices) {
+      if (!latestDeviceByUser.has(device.userId)) {
+        latestDeviceByUser.set(device.userId, device);
+      }
+    }
+    const readyDevices = [...latestDeviceByUser.values()].filter(
+      (device) => device.encryptionDevice,
     );
     const missingUserIds = membership.conversation.members
       .map((member) => member.userId)
-      .filter((memberId) => !keyedUserIds.has(memberId));
+      .filter(
+        (memberId) => !readyDevices.some((device) => device.userId === memberId),
+      );
     return {
       algorithm: 'X25519-HKDF-SHA256-AES256GCM',
-      devices: devices
-        .filter((device) => device.encryptionDevice)
-        .map((device) => ({
-          deviceId: device.id,
-          userId: device.userId,
-          publicKey: Buffer.from(
-            device.encryptionDevice!.identityPublicKey,
-          ).toString('base64'),
-          updatedAt: device.encryptionDevice!.updatedAt,
-        })),
+      devices: readyDevices.map((device) => ({
+        deviceId: device.id,
+        userId: device.userId,
+        publicKey: Buffer.from(
+          device.encryptionDevice!.identityPublicKey,
+        ).toString('base64'),
+        updatedAt: device.encryptionDevice!.updatedAt,
+      })),
       missingUserIds,
     };
   }
