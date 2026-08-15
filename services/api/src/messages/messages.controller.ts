@@ -11,7 +11,7 @@ export class MessagesController {
 
   @Post()
   send(@Req() request: AuthenticatedRequest, @Body() dto: SendMessageDto) {
-    return this.messagesService.send(request.user.id, dto, request.user.deviceId);
+    return this.messagesService.send(request.user.id, dto);
   }
 
   @Patch(':id')
@@ -20,12 +20,7 @@ export class MessagesController {
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Body() dto: UpdateMessageDto,
   ) {
-    return this.messagesService.update(
-      request.user.id,
-      id,
-      dto.encryptedPayload,
-      request.user.deviceId,
-    );
+    return this.messagesService.update(request.user.id, id, dto.encryptedPayload);
   }
 
   @Delete(':id')

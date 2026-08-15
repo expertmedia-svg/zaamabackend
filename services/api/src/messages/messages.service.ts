@@ -80,24 +80,8 @@ export class MessagesService {
     };
   }
 
-  async send(userId: string, dto: SendMessageDto, senderDeviceId?: string) {
-    const envelope = this.assertProductionEncryption(dto);
-    if (envelope) {
-      if (!senderDeviceId || envelope.senderDeviceId !== senderDeviceId) {
-        throw new BadRequestException('Encrypted envelope sender is invalid');
-      }
-      const registeredSender = await this.prisma.encryptionDevice.findUnique({
-        where: { deviceId: senderDeviceId },
-        select: { identityPublicKey: true },
-      });
-      if (
-        !registeredSender ||
-        Buffer.from(registeredSender.identityPublicKey).toString('base64') !==
-          envelope.senderPublicKey
-      ) {
-        throw new BadRequestException('Encrypted envelope key is not registered');
-      }
-    }
+  async send(userId: string, dto: SendMessageDto) {
+    this.assertMediaHasUpload(dto);
     const member = await this.prisma.conversationMember.findUnique({
       where: {
         conversationId_userId: { conversationId: dto.conversationId, userId },
@@ -144,30 +128,6 @@ export class MessagesService {
             HttpStatus.TOO_MANY_REQUESTS,
           );
         }
-      }
-    }
-
-    if (envelope) {
-      const expectedDeviceIds = await this.prisma.encryptionDevice.findMany({
-        where: {
-          device: {
-            user: { conversationMembers: { some: { conversationId: dto.conversationId } } },
-            sessions: { some: { revokedAt: null, expiresAt: { gt: new Date() } } },
-          },
-        },
-        select: { deviceId: true },
-        take: 256,
-      });
-      const received = new Set(
-        (envelope.envelopes as Array<Record<string, unknown>>)
-          .map((entry) => entry.deviceId)
-          .filter((id): id is string => typeof id === 'string'),
-      );
-      if (
-        expectedDeviceIds.length === 0 ||
-        expectedDeviceIds.some((device) => !received.has(device.deviceId))
-      ) {
-        throw new BadRequestException('Encrypted envelope recipients are incomplete');
       }
     }
 
@@ -261,59 +221,17 @@ export class MessagesService {
     return message;
   }
 
-  private assertProductionEncryption(
-    dto: SendMessageDto,
-  ): Record<string, unknown> | undefined {
-    if (this.config.get<string>('NODE_ENV') !== 'production') return undefined;
-    const encryptedMediaTypes = ['IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT'];
-    const isEncryptedMedia = encryptedMediaTypes.includes(dto.type);
-    if (isEncryptedMedia && !dto.uploadIds?.length) {
-      throw new BadRequestException('Encrypted media upload is required');
+  /// Chiffrement de bout en bout désactivé : la seule contrainte restante
+  /// sur un message média est d'avoir un upload associé, en production.
+  private assertMediaHasUpload(dto: SendMessageDto): void {
+    if (this.config.get<string>('NODE_ENV') !== 'production') return;
+    const mediaTypes = ['IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT'];
+    if (mediaTypes.includes(dto.type) && !dto.uploadIds?.length) {
+      throw new BadRequestException('Media upload is required');
     }
-    if (dto.type !== 'TEXT' && !isEncryptedMedia) return undefined;
-    let envelope: Record<string, unknown>;
-    try {
-      envelope = JSON.parse(dto.encryptedPayload) as Record<string, unknown>;
-    } catch {
-      throw new BadRequestException('Encrypted message envelope is required');
-    }
-    const recipients = envelope.envelopes;
-    if (
-      envelope.v !== 1 ||
-      envelope.algorithm !== 'X25519-HKDF-SHA256-AES256GCM' ||
-      (envelope.kind !== 'text' && envelope.kind !== 'media') ||
-      !Array.isArray(recipients) ||
-      recipients.length === 0 ||
-      recipients.length > 256 ||
-      typeof envelope.senderDeviceId !== 'string' ||
-      typeof envelope.senderPublicKey !== 'string'
-    ) {
-      throw new BadRequestException('Invalid encrypted message envelope');
-    }
-    if (
-      (dto.type === 'TEXT' && envelope.kind !== 'text') ||
-      (isEncryptedMedia && envelope.kind !== 'media')
-    ) {
-      throw new BadRequestException('Encrypted message kind does not match type');
-    }
-    const recipientIds = (recipients as Array<Record<string, unknown>>).map(
-      (entry) => entry.deviceId,
-    );
-    if (
-      recipientIds.some((id) => typeof id !== 'string') ||
-      new Set(recipientIds).size !== recipientIds.length
-    ) {
-      throw new BadRequestException('Encrypted message recipients are invalid');
-    }
-    return envelope;
   }
 
-  async update(
-    userId: string,
-    id: string,
-    encryptedPayload: string,
-    senderDeviceId?: string,
-  ) {
+  async update(userId: string, id: string, encryptedPayload: string) {
     const existing = await this.prisma.message.findFirst({
       where: { id, senderId: userId, deletedForEveryoneAt: null },
     });
@@ -323,15 +241,6 @@ export class MessagesService {
     }
     if (existing.type !== 'TEXT') {
       throw new ForbiddenException('Only text messages can be edited');
-    }
-    const envelope = this.assertProductionEncryption({
-      conversationId: existing.conversationId,
-      clientMessageId: existing.clientMessageId,
-      type: existing.type,
-      encryptedPayload,
-    });
-    if (envelope && envelope.senderDeviceId !== senderDeviceId) {
-      throw new BadRequestException('Encrypted envelope sender is invalid');
     }
 
     const message = await this.prisma.message.update({

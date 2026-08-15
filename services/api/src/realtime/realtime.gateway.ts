@@ -100,7 +100,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
     @MessageBody() body: SendMessageDto,
   ) {
     const auth = this.requireAuth(client);
-    const message = await this.messages.send(auth.userId, body, auth.deviceId);
+    const message = await this.messages.send(auth.userId, body);
     client.emit('message.ack', {
       clientMessageId: body.clientMessageId,
       serverMessageId: message.id,
