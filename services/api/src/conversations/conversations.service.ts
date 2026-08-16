@@ -5,10 +5,25 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { PresenceService } from '../realtime/presence.service';
 
 @Injectable()
 export class ConversationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly presence: PresenceService,
+  ) {}
+
+  /// Les événements temps réel (`presence.update`) ne rattrapent pas
+  /// l'historique : un membre déjà en ligne avant que ce client ne se
+  /// connecte ne génère aucun événement à recevoir. On complète donc chaque
+  /// membre avec l'état actuel connu du serveur au moment de la requête.
+  private withPresence<T extends { user: { id: string } }>(members: T[]) {
+    return members.map((member) => ({
+      ...member,
+      user: { ...member.user, online: this.presence.isOnline(member.user.id) },
+    }));
+  }
 
   async list(userId: string) {
     const memberships = await this.prisma.conversationMember.findMany({
@@ -59,6 +74,7 @@ export class ConversationsService {
 
     return memberships.map((membership) => ({
       ...membership.conversation,
+      members: this.withPresence(membership.conversation.members),
       membership: {
         mutedUntil: membership.mutedUntil,
         pinnedAt: membership.pinnedAt,
@@ -155,7 +171,10 @@ export class ConversationsService {
       },
     });
     if (!membership) throw new NotFoundException('Conversation not found');
-    return membership.conversation;
+    return {
+      ...membership.conversation,
+      members: this.withPresence(membership.conversation.members),
+    };
   }
 
   async updateDisappearingMessages(

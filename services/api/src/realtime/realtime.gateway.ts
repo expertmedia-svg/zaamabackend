@@ -4,6 +4,7 @@ import {
   ConnectedSocket,
   MessageBody,
   OnGatewayConnection,
+  OnGatewayDisconnect,
   OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
@@ -14,12 +15,14 @@ import { PrismaService } from '../database/prisma.service';
 import { MessagesService } from '../messages/messages.service';
 import type { SendMessageDto } from '../messages/messages.dto';
 import { ReceiptState } from '../generated/prisma/enums';
+import { PresenceService } from './presence.service';
 import { RealtimePublisher } from './realtime.publisher';
 
 interface SocketAuth {
   userId: string;
   sessionId: string;
   deviceId: string;
+  conversationIds: string[];
 }
 
 interface AccessPayload {
@@ -36,7 +39,9 @@ type AuthenticatedSocket = Socket & { data: { auth?: SocketAuth } };
   cors: { origin: true, credentials: false },
   transports: ['websocket', 'polling'],
 })
-export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
+export class RealtimeGateway
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer()
   server!: Server;
 
@@ -46,6 +51,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
     private readonly prisma: PrismaService,
     private readonly messages: MessagesService,
     private readonly publisher: RealtimePublisher,
+    private readonly presence: PresenceService,
   ) {}
 
   afterInit(server: Server): void {
@@ -72,25 +78,49 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
       });
       if (!session) throw new Error('inactive session');
 
-      client.data.auth = {
-        userId: payload.sub,
-        sessionId: payload.sessionId,
-        deviceId: payload.deviceId,
-      };
-      await client.join(`user:${payload.sub}`);
       const memberships = await this.prisma.conversationMember.findMany({
         where: { userId: payload.sub },
         select: { conversationId: true },
       });
+      const conversationIds = memberships.map((entry) => entry.conversationId);
+      client.data.auth = {
+        userId: payload.sub,
+        sessionId: payload.sessionId,
+        deviceId: payload.deviceId,
+        conversationIds,
+      };
+      await client.join(`user:${payload.sub}`);
       await Promise.all(
-        memberships.map(({ conversationId }) =>
+        conversationIds.map((conversationId) =>
           client.join(`conversation:${conversationId}`),
         ),
       );
-      client.emit('presence.update', { userId: payload.sub, state: 'online' });
+      // `client.emit` ne renvoie l'événement qu'à ce socket : ça ne servait
+      // donc jamais qu'à s'informer soi-même. On diffuse maintenant l'état
+      // "en ligne" aux autres membres de chaque conversation partagée, et
+      // seulement si c'est vraiment le premier appareil connecté de cet
+      // utilisateur (sinon il l'était déjà pour les autres).
+      if (this.presence.connect(payload.sub, client.id)) {
+        for (const conversationId of conversationIds) {
+          client
+            .to(`conversation:${conversationId}`)
+            .emit('presence.update', { userId: payload.sub, state: 'online' });
+        }
+      }
     } catch {
       client.emit('auth.error', { code: 'UNAUTHORIZED' });
       client.disconnect(true);
+    }
+  }
+
+  handleDisconnect(client: AuthenticatedSocket): void {
+    const auth = client.data.auth;
+    if (!auth) return;
+    if (!this.presence.disconnect(auth.userId, client.id)) return;
+    for (const conversationId of auth.conversationIds) {
+      this.server
+        .to(`conversation:${conversationId}`)
+        .emit('presence.update', { userId: auth.userId, state: 'offline' });
     }
   }
 
