@@ -75,6 +75,35 @@ export class CallsService {
     });
   }
 
+  /// La liste complète des participants (nécessaire pour établir un appel
+  /// de groupe en maillage — chaque appareil doit savoir avec qui se
+  /// connecter) n'est utile qu'à ceux qui y participent réellement.
+  async details(userId: string, callId: string) {
+    const call = await this.prisma.call.findFirst({
+      where: {
+        id: callId,
+        OR: [{ startedById: userId }, { participants: { some: { userId } } }],
+      },
+      include: {
+        participants: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                profile: { select: { displayName: true, username: true, avatarUrl: true } },
+              },
+            },
+          },
+        },
+        conversation: {
+          select: { id: true, type: true, group: { select: { name: true, avatarUrl: true } } },
+        },
+      },
+    });
+    if (!call) throw new NotFoundException('Call not found');
+    return call;
+  }
+
   async create(userId: string, dto: CreateCallDto) {
     let participantIds = [userId];
     if (dto.conversationId) {
@@ -181,6 +210,46 @@ export class CallsService {
 
     for (const participant of call.participants) {
       this.realtime.toUser(participant.userId, 'call.updated', updated);
+    }
+    return updated;
+  }
+
+  /// Un participant quitte SON appel — distinct de `update(status: 'ENDED')`
+  /// qui, avec plusieurs participants, terminerait l'appel pour tout le
+  /// monde d'un coup. Ici, l'appel ne se termine vraiment que lorsque plus
+  /// personne d'autre n'y est encore.
+  async leave(userId: string, callId: string) {
+    const call = await this.prisma.call.findFirst({
+      where: { id: callId, participants: { some: { userId } } },
+      include: { participants: true },
+    });
+    if (!call) throw new NotFoundException('Call not found');
+    const now = new Date();
+
+    const stillActive = call.participants.some(
+      (participant) => participant.userId !== userId && !participant.leftAt,
+    );
+    const terminal = ['ENDED', 'MISSED', 'DECLINED', 'FAILED'].includes(call.status);
+
+    const updated = await this.prisma.$transaction(async (transaction) => {
+      await transaction.callParticipant.updateMany({
+        where: { callId, userId, leftAt: null },
+        data: { leftAt: now },
+      });
+      return transaction.call.update({
+        where: { id: callId },
+        data:
+          stillActive || terminal
+            ? {}
+            : { status: 'ENDED', endedAt: now },
+        include: { participants: true },
+      });
+    });
+
+    for (const participant of call.participants) {
+      if (participant.userId !== userId) {
+        this.realtime.toUser(participant.userId, 'call.updated', updated);
+      }
     }
     return updated;
   }

@@ -19,6 +19,14 @@ export class CallsController {
     return this.callsService.getIceServers(request.user.id);
   }
 
+  @Get(':id')
+  details(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.callsService.details(request.user.id, id);
+  }
+
   @Post()
   create(@Req() request: AuthenticatedRequest, @Body() dto: CreateCallDto) {
     return this.callsService.create(request.user.id, dto);
@@ -31,5 +39,13 @@ export class CallsController {
     @Body() dto: UpdateCallDto,
   ) {
     return this.callsService.update(request.user.id, id, dto.status);
+  }
+
+  @Post(':id/leave')
+  leave(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.callsService.leave(request.user.id, id);
   }
 }

@@ -15,12 +15,12 @@ describe('AuthService OTP modes', () => {
     const count = jest.fn().mockResolvedValue(0);
     const userFindUnique = jest.fn().mockResolvedValue(userOverrides ?? null);
     const userUpdate = jest.fn().mockResolvedValue({});
-    const prisma = {
+    const prisma: Record<string, unknown> = {
       otpRequest: { create, updateMany, findFirst, count },
       user: { findUnique: userFindUnique, update: userUpdate },
       $transaction: jest.fn(async (operations: unknown) =>
         typeof operations === 'function'
-          ? operations(prisma)
+          ? (operations as (tx: unknown) => unknown)(prisma)
           : Promise.all(operations as unknown[]),
       ),
     };
@@ -118,10 +118,12 @@ describe('AuthService PIN login', () => {
   function pinService(user: Record<string, unknown> | null) {
     const userFindUnique = jest.fn().mockResolvedValue(user);
     const userUpdate = jest.fn().mockResolvedValue({});
-    const prisma = {
+    const prisma: Record<string, unknown> = {
       user: { findUnique: userFindUnique, update: userUpdate },
       $transaction: jest.fn(async (operations: unknown) =>
-        typeof operations === 'function' ? operations(prisma) : operations,
+        typeof operations === 'function'
+          ? (operations as (tx: unknown) => unknown)(prisma)
+          : operations,
       ),
     };
     const config = {

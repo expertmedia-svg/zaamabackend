@@ -265,20 +265,35 @@ export class RealtimeGateway
         status: { in: ['RINGING', 'CONNECTING', 'CONNECTED'] },
       },
       select: {
-        startedById: true,
         participants: { select: { userId: true } },
       },
     });
     if (!call) return { accepted: false };
-    const fromStarter = call.startedById === auth.userId;
-    if (
-      (event === 'call.offer' && !fromStarter) ||
-      (['call.ringing', 'call.ready', 'call.answer'].includes(event) &&
-        fromStarter)
-    ) {
-      return { accepted: false };
+    const participantIds = new Set(
+      call.participants.map((participant) => participant.userId),
+    );
+
+    // Offre/réponse/candidat ICE : négociation point-à-point entre deux
+    // appareils précis (appel de groupe = plusieurs connexions en
+    // parallèle, une par paire de participants) — jamais de diffusion
+    // large ici, sous peine de mélanger les SDP de plusieurs pairs.
+    if (event === 'call.offer' || event === 'call.answer' || event === 'call.ice') {
+      const toUserId = 'toUserId' in body ? body.toUserId : undefined;
+      if (
+        typeof toUserId !== 'string' ||
+        toUserId === auth.userId ||
+        !participantIds.has(toUserId)
+      ) {
+        return { accepted: false };
+      }
+      this.server
+        .to(`user:${toUserId}`)
+        .emit(event, { ...body, fromUserId: auth.userId });
+      return { accepted: true };
     }
 
+    // Sonnerie/prêt/raccroché : signaux de présence diffusés à tous les
+    // autres participants de l'appel (pas de destinataire unique).
     for (const participant of call.participants) {
       if (participant.userId !== auth.userId) {
         this.server.to(`user:${participant.userId}`).emit(event, {
@@ -304,6 +319,7 @@ export class RealtimeGateway
     const body = value as Record<string, unknown>;
     const callId = typeof body.callId === 'string' ? body.callId : '';
     if (!/^[0-9a-f-]{36}$/i.test(callId)) throw new Error('invalid call id');
+    const toUserId = typeof body.toUserId === 'string' ? body.toUserId : undefined;
     if (event === 'call.offer' || event === 'call.answer') {
       if (typeof body.sdp !== 'string' || body.sdp.length > 200_000) {
         throw new Error('invalid session description');
@@ -311,7 +327,7 @@ export class RealtimeGateway
       if (body.type !== 'offer' && body.type !== 'answer') {
         throw new Error('invalid session description type');
       }
-      return { callId, sdp: body.sdp, type: body.type };
+      return { callId, sdp: body.sdp, type: body.type, toUserId };
     }
     if (event === 'call.ice') {
       if (typeof body.candidate !== 'string' || body.candidate.length > 8_192) {
@@ -323,6 +339,7 @@ export class RealtimeGateway
         sdpMid: typeof body.sdpMid === 'string' ? body.sdpMid : null,
         sdpMLineIndex:
           typeof body.sdpMLineIndex === 'number' ? body.sdpMLineIndex : null,
+        toUserId,
       };
     }
     return { callId };
