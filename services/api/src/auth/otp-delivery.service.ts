@@ -15,9 +15,13 @@ export class OtpDeliveryService {
 
   async send(phone: string, code: string): Promise<void> {
     const mode = this.config.get<string>('OTP_MODE') ?? 'disabled';
-    if (mode === 'pilot') {
+    if (mode === 'pilot' || mode === 'auto_fill') {
+      // `auto_fill` : Orange SMS coûte cher et est désactivé volontairement
+      // — le code est renvoyé au client par `AuthService.requestOtp`
+      // (`devOtp`) au lieu d'être envoyé par SMS. Repasser OTP_MODE à
+      // 'orange_sms' réactive l'envoi réel.
       this.logger.warn(
-        `SMS non envoyé : OTP_MODE=pilot, destinataire ${this.maskPhone(phone)}`,
+        `SMS non envoyé : OTP_MODE=${mode}, destinataire ${this.maskPhone(phone)}`,
       );
       return;
     }

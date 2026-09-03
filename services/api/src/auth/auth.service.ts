@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -8,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { compare, hash } from 'bcryptjs';
 import {
   createHash,
   createHmac,
@@ -16,9 +18,13 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
-import type { User, UserProfile } from '../generated/prisma/client';
-import type { VerifyOtpDto } from './auth.dto';
+import { Prisma } from '../generated/prisma/client';
+import type { DevicePlatform, User, UserProfile } from '../generated/prisma/client';
+import type { LoginPinDto, VerifyOtpDto } from './auth.dto';
 import { OtpDeliveryService } from './otp-delivery.service';
+
+const PIN_MAX_ATTEMPTS = 5;
+const PIN_LOCKOUT_SECONDS = 15 * 60;
 
 interface TokenPayload {
   sub: string;
@@ -71,7 +77,13 @@ export class AuthService {
     return {
       success: true,
       expiresAt,
-      ...(this.config.get<string>('APP_ENV') === 'development'
+      // `auto_fill` : Orange SMS est volontairement désactivé (coût de
+      // l'abonnement), le code est donc renvoyé directement pour que le
+      // client le pré-remplisse lui-même — le SMS ne partira jamais.
+      // Redevient un vrai SMS Orange dès que OTP_MODE repasse à
+      // 'orange_sms' ; ce champ disparaît alors de la réponse.
+      ...(this.config.get<string>('APP_ENV') === 'development' ||
+      this.config.get<string>('OTP_MODE') === 'auto_fill'
         ? { devOtp: code }
         : {}),
     };
@@ -101,12 +113,6 @@ export class AuthService {
       throw new UnauthorizedException('Invalid OTP');
     }
 
-    const sessionId = randomUUID();
-    const expiresAt = new Date(
-      Date.now() +
-        this.durationSeconds('JWT_REFRESH_EXPIRES_IN', 7 * 86_400) * 1000,
-    );
-
     const result = await this.prisma.$transaction(async (transaction) => {
       await transaction.otpRequest.update({
         where: { id: otp.id },
@@ -129,48 +135,144 @@ export class AuthService {
         include: { profile: true },
       });
 
-      const device = await transaction.device.upsert({
-        where: {
-          userId_installationId: {
-            userId: user.id,
-            installationId: dto.installationId,
-          },
-        },
-        update: {
-          name: dto.deviceName,
-          platform: dto.platform,
-          lastActiveAt: new Date(),
-        },
-        create: {
-          userId: user.id,
-          installationId: dto.installationId,
-          name: dto.deviceName,
-          platform: dto.platform,
-        },
-      });
-
-      const tokens = await this.issueTokens(user, sessionId, device.id, 0);
-      await transaction.session.create({
-        data: {
-          id: sessionId,
-          userId: user.id,
-          deviceId: device.id,
-          refreshTokenHash: this.tokenHash(tokens.refreshToken),
-          expiresAt,
-          ipAddress,
-          userAgent,
-        },
-      });
-
-      return { user, device, tokens };
+      return this.issueSession(transaction, user, dto, ipAddress, userAgent);
     });
 
     return {
       ...result.tokens,
       user: this.toPublicUser(result.user),
-      sessionId,
-      deviceId: result.device.id,
+      sessionId: result.sessionId,
+      deviceId: result.deviceId,
+      // Le client s'en sert pour proposer "créer un code PIN" juste après
+      // la toute première vérification OTP réussie de ce compte.
+      hasPin: Boolean(result.user.pinHash),
     };
+  }
+
+  /// Le téléphone seul ne dit pas si un compte existe déjà : `hasPin` vaut
+  /// `false` aussi bien pour "pas de compte" que pour "compte sans PIN",
+  /// dans les deux cas le client doit repasser par l'OTP — sans distinguer
+  /// les deux cas publiquement.
+  async checkPhone(phone: string) {
+    const normalized = this.normalizePhone(phone);
+    const user = await this.prisma.user.findUnique({
+      where: { phone: normalized },
+      select: { pinHash: true },
+    });
+    return { hasPin: Boolean(user?.pinHash) };
+  }
+
+  async setPin(userId: string, pin: string) {
+    const pinHash = await hash(pin, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { pinHash, pinFailedAttempts: 0, pinLockedUntil: null },
+    });
+    return { success: true };
+  }
+
+  async loginWithPin(dto: LoginPinDto, ipAddress?: string, userAgent?: string) {
+    const phone = this.normalizePhone(dto.phone);
+    const user = await this.prisma.user.findUnique({
+      where: { phone },
+      include: { profile: true },
+    });
+    // Même message que PIN invalide dans tous les cas (pas de compte, pas
+    // de PIN configuré, mauvais PIN) : ne pas laisser un essai de connexion
+    // révéler si un numéro est inscrit sur ZAAMA.
+    const genericFailure = () =>
+      new UnauthorizedException('Invalid phone or PIN');
+    if (!user || !user.pinHash) throw genericFailure();
+    if (user.pinLockedUntil && user.pinLockedUntil > new Date()) {
+      throw new ForbiddenException(
+        'Trop de tentatives — utilisez le code OTP pour vous reconnecter',
+      );
+    }
+
+    const match = await compare(dto.pin, user.pinHash);
+    if (!match) {
+      const attempts = user.pinFailedAttempts + 1;
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data:
+          attempts >= PIN_MAX_ATTEMPTS
+            ? {
+                pinFailedAttempts: 0,
+                pinLockedUntil: new Date(Date.now() + PIN_LOCKOUT_SECONDS * 1000),
+              }
+            : { pinFailedAttempts: attempts },
+      });
+      throw genericFailure();
+    }
+
+    if (user.pinFailedAttempts > 0) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { pinFailedAttempts: 0 },
+      });
+    }
+
+    const result = await this.prisma.$transaction((transaction) =>
+      this.issueSession(transaction, user, dto, ipAddress, userAgent),
+    );
+
+    return {
+      ...result.tokens,
+      user: this.toPublicUser(result.user),
+      sessionId: result.sessionId,
+      deviceId: result.deviceId,
+      hasPin: true,
+    };
+  }
+
+  private async issueSession(
+    transaction: Prisma.TransactionClient,
+    user: User & { profile: UserProfile | null },
+    device: {
+      installationId: string;
+      deviceName: string;
+      platform: DevicePlatform;
+    },
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
+    const sessionId = randomUUID();
+    const expiresAt = new Date(
+      Date.now() +
+        this.durationSeconds('JWT_REFRESH_EXPIRES_IN', 7 * 86_400) * 1000,
+    );
+    const deviceRow = await transaction.device.upsert({
+      where: {
+        userId_installationId: {
+          userId: user.id,
+          installationId: device.installationId,
+        },
+      },
+      update: {
+        name: device.deviceName,
+        platform: device.platform,
+        lastActiveAt: new Date(),
+      },
+      create: {
+        userId: user.id,
+        installationId: device.installationId,
+        name: device.deviceName,
+        platform: device.platform,
+      },
+    });
+    const tokens = await this.issueTokens(user, sessionId, deviceRow.id, 0);
+    await transaction.session.create({
+      data: {
+        id: sessionId,
+        userId: user.id,
+        deviceId: deviceRow.id,
+        refreshTokenHash: this.tokenHash(tokens.refreshToken),
+        expiresAt,
+        ipAddress,
+        userAgent,
+      },
+    });
+    return { user, tokens, sessionId, deviceId: deviceRow.id };
   }
 
   async refresh(refreshToken: string) {
@@ -368,7 +470,10 @@ export class AuthService {
       return this.config.get<string>('DEV_OTP') ?? '123456';
     }
 
-    if (this.config.get<string>('OTP_MODE') === 'orange_sms') {
+    if (
+      this.config.get<string>('OTP_MODE') === 'orange_sms' ||
+      this.config.get<string>('OTP_MODE') === 'auto_fill'
+    ) {
       return randomInt(100_000, 1_000_000).toString();
     }
 

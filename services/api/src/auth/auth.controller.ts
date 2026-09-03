@@ -13,7 +13,13 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedRequest } from '../common/auth-user';
 import { AuthService } from './auth.service';
-import { RequestOtpDto, RefreshDto, VerifyOtpDto } from './auth.dto';
+import {
+  LoginPinDto,
+  RequestOtpDto,
+  RefreshDto,
+  SetPinDto,
+  VerifyOtpDto,
+} from './auth.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Controller('auth')
@@ -38,6 +44,28 @@ export class AuthController {
   @Post('verify-otp')
   verifyOtp(@Body() dto: VerifyOtpDto, @Req() request: AuthenticatedRequest) {
     return this.authService.verifyOtp(dto, request.ip, request.header('user-agent'));
+  }
+
+  @Throttle({ default: { ttl: 60_000, limit: 15 } })
+  @Post('check-phone')
+  checkPhone(@Body() dto: RequestOtpDto) {
+    return this.authService.checkPhone(dto.phone);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('set-pin')
+  setPin(@Body() dto: SetPinDto, @Req() request: AuthenticatedRequest) {
+    return this.authService.setPin(request.user.id, dto.pin);
+  }
+
+  // Volontairement plus limité que verify-otp : un PIN a un espace de
+  // valeurs bien plus petit qu'un OTP à 6 chiffres à usage unique, donc
+  // moins de tentatives par minute pour freiner le brute-force réseau — le
+  // verrouillage par compte côté service prend le relais au-delà.
+  @Throttle({ default: { ttl: 60_000, limit: 8 } })
+  @Post('login-pin')
+  loginPin(@Body() dto: LoginPinDto, @Req() request: AuthenticatedRequest) {
+    return this.authService.loginWithPin(dto, request.ip, request.header('user-agent'));
   }
 
   @Throttle({ default: { ttl: 60_000, limit: 30 } })

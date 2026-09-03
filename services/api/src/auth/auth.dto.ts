@@ -41,3 +41,30 @@ export class RefreshDto {
   @IsNotEmpty()
   refreshToken!: string;
 }
+
+const PIN_PATTERN = /^\d{4,6}$/;
+
+export class SetPinDto {
+  @IsString()
+  @Matches(PIN_PATTERN, { message: 'pin must be 4 to 6 digits' })
+  pin!: string;
+}
+
+export class LoginPinDto extends RequestOtpDto {
+  @IsString()
+  @Matches(PIN_PATTERN, { message: 'pin must be 4 to 6 digits' })
+  pin!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(128)
+  installationId!: string;
+
+  @IsString()
+  @MaxLength(120)
+  deviceName!: string;
+
+  @IsOptional()
+  @IsEnum(DevicePlatform)
+  platform: DevicePlatform = DevicePlatform.UNKNOWN;
+}
