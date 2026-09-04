@@ -1,4 +1,4 @@
-import { ValidationPipe } from '@nestjs/common';
+import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -44,7 +44,11 @@ async function bootstrap(): Promise<void> {
     }),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
-  app.setGlobalPrefix('api/v1');
+  // /privacy reste hors préfixe : c'est l'URL donnée à Google Play / à
+  // l'App Store, elle doit rester stable et lisible (pas /api/v1/privacy).
+  app.setGlobalPrefix('api/v1', {
+    exclude: [{ path: 'privacy', method: RequestMethod.GET }],
+  });
 
   app.enableShutdownHooks();
   await app.listen(

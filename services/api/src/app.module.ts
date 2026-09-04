@@ -21,6 +21,7 @@ import { MarketplaceModule } from './marketplace/marketplace.module';
 import { WalletModule } from './wallet/wallet.module';
 import { PushModule } from './push/push.module';
 import { EncryptionModule } from './encryption/encryption.module';
+import { LegalModule } from './legal/legal.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { EncryptionModule } from './encryption/encryption.module';
     PushModule,
     EncryptionModule,
     HealthModule,
+    LegalModule,
   ],
   controllers: [AppController],
   providers: [
