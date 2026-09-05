@@ -111,6 +111,23 @@ export class MarketplaceService {
     });
   }
 
+  async product(productId: string) {
+    const product = await this.prisma.product.findFirst({
+      where: {
+        id: productId,
+        status: 'ACTIVE',
+        business: { status: { in: ['VERIFIED', 'PENDING'] } },
+      },
+      include: {
+        business: {
+          select: { id: true, name: true, slug: true, status: true, city: true },
+        },
+      },
+    });
+    if (!product) throw new NotFoundException('Produit introuvable');
+    return product;
+  }
+
   async createBusiness(userId: string, dto: CreateBusinessDto) {
     try {
       return await this.prisma.businessProfile.create({

@@ -40,6 +40,11 @@ export class MarketplaceController {
     return this.marketplace.products(query);
   }
 
+  @Get('products/:id')
+  product(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
+    return this.marketplace.product(id);
+  }
+
   @Post('businesses')
   createBusiness(@Req() request: AuthenticatedRequest, @Body() dto: CreateBusinessDto) {
     return this.marketplace.createBusiness(request.user.id, dto);
