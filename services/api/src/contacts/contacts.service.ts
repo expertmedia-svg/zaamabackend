@@ -12,6 +12,10 @@ export class ContactsService {
 
   async sync(ownerId: string, phones: string[]) {
     const hashes = [...new Set(phones.map((phone) => this.hashPhone(phone)))];
+    if (hashes.length === 0) {
+      await this.prisma.contact.deleteMany({ where: { ownerId } });
+      return this.list(ownerId);
+    }
     const matchedUsers = await this.prisma.user.findMany({
       where: { phoneHash: { in: hashes }, id: { not: ownerId }, status: 'ACTIVE' },
       select: { id: true, phoneHash: true },
@@ -30,13 +34,15 @@ export class ContactsService {
         where: { ownerId, phoneHash: { in: [...userByHash.keys()] } },
         select: { id: true, phoneHash: true },
       });
-      await transaction.contactMatch.createMany({
-        data: contacts.map((contact) => ({
-          contactId: contact.id,
-          matchedUserId: userByHash.get(contact.phoneHash)!,
-        })),
-        skipDuplicates: true,
-      });
+      if (contacts.length > 0) {
+        await transaction.contactMatch.createMany({
+          data: contacts.map((contact) => ({
+            contactId: contact.id,
+            matchedUserId: userByHash.get(contact.phoneHash)!,
+          })),
+          skipDuplicates: true,
+        });
+      }
     });
     return this.list(ownerId);
   }
