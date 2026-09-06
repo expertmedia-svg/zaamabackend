@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
+import { memberLabel } from '../common/member-label';
 
 @Injectable()
 export class ContactsService {
@@ -47,14 +48,15 @@ export class ContactsService {
     return this.list(ownerId);
   }
 
-  list(ownerId: string) {
-    return this.prisma.contactMatch.findMany({
+  async list(ownerId: string) {
+    const contacts = await this.prisma.contactMatch.findMany({
       where: { contact: { ownerId } },
       select: {
         matchedAt: true,
         matchedUser: {
           select: {
             id: true,
+            phone: true,
             profile: {
               select: { username: true, displayName: true, avatarUrl: true, bio: true },
             },
@@ -63,6 +65,7 @@ export class ContactsService {
       },
       orderBy: { matchedAt: 'desc' },
     });
+    return contacts.map((contact) => ({ ...contact, matchedUser: memberLabel(contact.matchedUser) }));
   }
 
   private hashPhone(phone: string): string {

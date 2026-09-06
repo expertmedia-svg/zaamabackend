@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { PresenceService } from '../realtime/presence.service';
+import { memberLabel } from '../common/member-label';
 
 @Injectable()
 export class ConversationsService {
@@ -18,10 +19,10 @@ export class ConversationsService {
   /// l'historique : un membre déjà en ligne avant que ce client ne se
   /// connecte ne génère aucun événement à recevoir. On complète donc chaque
   /// membre avec l'état actuel connu du serveur au moment de la requête.
-  private withPresence<T extends { user: { id: string } }>(members: T[]) {
+  private withPresence<T extends { user: { id: string; phone: string; profile: { displayName: string } | null } }>(members: T[]) {
     return members.map((member) => ({
       ...member,
-      user: { ...member.user, online: this.presence.isOnline(member.user.id) },
+      user: { ...memberLabel(member.user), online: this.presence.isOnline(member.user.id) },
     }));
   }
 
@@ -36,6 +37,7 @@ export class ConversationsService {
                 user: {
                   select: {
                     id: true,
+                    phone: true,
                     profile: {
                       select: {
                         username: true,
@@ -116,7 +118,7 @@ export class ConversationsService {
     if (block) throw new ForbiddenException('Conversation cannot be created');
 
     const directKey = [userId, participantId].sort().join(':');
-    return this.prisma.conversation.upsert({
+    const conversation = await this.prisma.conversation.upsert({
       where: { directKey },
       update: {},
       create: {
@@ -132,6 +134,7 @@ export class ConversationsService {
             user: {
               select: {
                 id: true,
+                phone: true,
                 profile: {
                   select: {
                     username: true,
@@ -145,6 +148,7 @@ export class ConversationsService {
         },
       },
     });
+    return { ...conversation, members: this.withPresence(conversation.members) };
   }
 
   async details(userId: string, conversationId: string) {
@@ -159,6 +163,7 @@ export class ConversationsService {
                 user: {
                   select: {
                     id: true,
+                    phone: true,
                     profile: {
                       select: { username: true, displayName: true, avatarUrl: true },
                     },

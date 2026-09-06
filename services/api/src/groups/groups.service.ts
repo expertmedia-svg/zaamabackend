@@ -1,3 +1,4 @@
+import { memberLabel } from '../common/member-label';
 import {
   BadRequestException,
   ForbiddenException,
@@ -294,6 +295,7 @@ export class GroupsService {
             user: {
               select: {
                 id: true,
+                phone: true,
                 profile: { select: { username: true, displayName: true, avatarUrl: true } },
               },
             },
@@ -303,6 +305,6 @@ export class GroupsService {
       },
     });
     if (!group) throw new NotFoundException('Group not found');
-    return group;
+    return { ...group, members: group.members.map((member) => ({ ...member, user: memberLabel(member.user) })) };
   }
 }
